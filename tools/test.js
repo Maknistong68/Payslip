@@ -494,6 +494,43 @@ var Delivery = require(path.join(__dirname, '..', 'js', 'delivery.js'));
     var cd = ps(d, 'drafts');
     assert.strictEqual(cd.filter(function (x) { return x.op === 'save'; }).length, 3);
     assert.ok(!fs.existsSync(path.join(d, 'delivery-log.csv')), 'drafts are not ticked as sent');
+
+    // no classic Outlook here: Check says so, and the mail server path sends instead
+    var noOutlook = cp.execFileSync('pwsh', ['-NoProfile', '-File', path.join(d, 'send-all.ps1'), '-Check', '-Yes'], { encoding: 'utf8' });
+    assert.ok(/Classic Outlook is not installed/.test(noOutlook) && /mail server/.test(noOutlook) && /Nothing was sent/.test(noOutlook));
+    var smtp = function (pack, password, mailDir) {
+      var server = cp.spawn(process.execPath, [path.join(__dirname, 'fake-smtp.js'), mailDir, 'wrong'], { stdio: 'ignore' });
+      try {
+        var portFile = path.join(mailDir, 'port');
+        for (var n = 0; n < 100 && !fs.existsSync(portFile); n++) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+        var args = ['-NoProfile', '-File', path.join(pack, 'send-all.ps1'), '-Smtp', '-From', 'payroll@example.com', '-Server', '127.0.0.1:' + fs.readFileSync(portFile, 'utf8'), '-NoTls', '-Yes', '-Delay', '0'];
+        var r = cp.spawnSync('pwsh', args, { env: Object.assign({}, process.env, { PAYSLIP_SMTP_PASSWORD: password }), encoding: 'utf8' });
+        return r.stdout + r.stderr;
+      } finally { server.kill(); }
+    };
+    var mailbox = function (mailDir) {
+      return fs.readdirSync(mailDir).filter(function (f) { return /\.eml$/.test(f); }).sort().map(function (f) { return fs.readFileSync(path.join(mailDir, f), 'utf8'); });
+    };
+    var sp = makePack('win');
+    var refused = fs.mkdtempSync(path.join(os.tmpdir(), 'mail-'));
+    var out = smtp(sp, 'wrong', refused);
+    assert.ok(/refused the sign-in|app password/.test(out) && /Stopped before trying the others/.test(out), 'a refused password stops at once with a hint');
+    assert.strictEqual(mailbox(refused).length, 0);
+    assert.ok(!fs.existsSync(path.join(sp, 'delivery-log.csv')) || logIds(sp).length === 0);
+    var box = fs.mkdtempSync(path.join(os.tmpdir(), 'mail-'));
+    out = smtp(sp, 'secret', box);
+    assert.ok(/Done: 3 sent, 0 failed/.test(out), out);
+    var mails = mailbox(box);
+    assert.strictEqual(mails.length, 3);
+    assert.ok(/X-Envelope-To: <ali@example\.com>/.test(mails[0]) && /X-Auth-User: payroll@example\.com/.test(mails[0]));
+    assert.ok(/Content-Type: application\/pdf; name=E1\.pdf/.test(mails[0]) && /filename=E1\.pdf/.test(mails[0]), 'PDF attached as a PDF');
+    var b64 = function (mail) { return Buffer.from(mail.split('charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n')[1].split('\r\n--')[0], 'base64').toString('utf8'); };
+    assert.strictEqual(b64(mails[0]), 'Dear Ali,\r\n\r\nPassword: your Iqama number.\r\n\r\nBest regards');
+    assert.strictEqual(b64(mails[2]), 'Dear علي', 'Arabic body kept');
+    assert.deepStrictEqual(logIds(sp), ['E1', 'E2', 'E3']);
+    assert.ok(/sent by mail server/.test(fs.readFileSync(path.join(sp, 'delivery-log.csv'), 'utf8')));
+    var again = fs.mkdtempSync(path.join(os.tmpdir(), 'mail-'));
+    assert.ok(/sent already/.test(smtp(sp, 'secret', again)) && mailbox(again).length === 0, 'rerun sends nothing twice');
   } else console.log('(pwsh not installed: Windows pack not run)');
 
   if (has('bash')) {

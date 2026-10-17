@@ -78,8 +78,10 @@ The steps:
      sends one email every 2.5 seconds (Microsoft 365 allows about 30 a minute), lists each one, and writes
      `delivery-log.csv` as it goes. Ctrl+C stops it; running it again skips everyone already sent. Loading the
      log under *More → Restore ticks from a log* ticks everyone. People already ticked are left out unless
-     chosen. Windows also has *Save as drafts instead* and *Check the pack*; it needs classic Outlook (PowerShell,
-     no macros or installs). The Mac pack uses Apple Mail through AppleScript (allow "control Mail" once; open
+     chosen. Windows also has *Save as drafts instead* and *Check the pack* (says whether classic Outlook answers,
+     and why not: New Outlook, an "as administrator" mismatch, 32-bit Office, which it retries by itself). Without
+     classic Outlook it offers to send through the mailbox's mail server instead (Microsoft 365, Outlook.com or
+     Gmail over TLS; the password is asked each run and never saved). PowerShell only, no macros or installs. The Mac pack uses Apple Mail through AppleScript (allow "control Mail" once; open
      the `.command` file with right-click → Open the first time).
    - **More**: all PDFs to a folder or a ZIP, one PDF to print, the signature register, the Thunderbird Mail
      Merge pack for Gmail or any mailbox, the delivery log CSV, restore ticks from a log, clear ticks.
@@ -212,8 +214,9 @@ No build step; edit the files and reload the page.
 - The viewer shows the PDF with the browser's built-in PDF viewer; some phone browsers show an
   "Open in a new tab" link instead.
 - The send-all packs are scripts: a company that blocks PowerShell scripts (Windows) or unsigned scripts
-  (Mac) stops them; the per-person buttons still work. The Windows script is tested with PowerShell against a
-  stand-in for Outlook, and the Mac script with a stand-in for Apple Mail (`tools/test.js`).
+  (Mac) stops them; the per-person buttons still work. The mail-server route needs Authenticated SMTP, which some
+  Microsoft 365 companies turn off, and Gmail or two-step sign-in needs an app password. The Windows script is tested with PowerShell against a
+  stand-in for Outlook and a local test mail server, and the Mac script with a stand-in for Apple Mail (`tools/test.js`).
 - The `.eml` drafts open as editable drafts only in classic Outlook for Windows (build 2109 or newer).
   New Outlook, Outlook for Mac, Apple Mail and web mail open them read-only.
 - PDF passwords use the 40-bit RC4 standard security handler built into jsPDF: it stops casual opening and

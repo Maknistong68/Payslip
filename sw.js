@@ -5,7 +5,7 @@
  */
 'use strict';
 
-var VERSION = '2026-10-17.5';
+var VERSION = '2026-10-17.6';
 var CACHE = 'payslip-' + VERSION;
 var ASSETS = [
   './',

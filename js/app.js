@@ -1359,8 +1359,9 @@
         '<ul class="sp-facts"><li><b id="spCount"></b> emails in the pack</li>' +
         (noEmail ? '<li>' + plural(noEmail, 'employee has', 'employees have') + ' no email: send theirs on WhatsApp or print them.</li>' : '') +
         (already ? '<li><label class="check"><input type="checkbox" id="spIncludeSent"> Also include the ' + plural(already, 'person', 'people') + ' already sent</label></li>' : '') +
-        '<li>Needs <b>' + pk.app + '</b> on ' + pk.os + (win ? ' (not New Outlook or Outlook on the web)' : '') + '.</li></ul>' +
-        '<ol class="sp-steps"><li>Unzip the pack.</li><li>Double-click <b>1 - Send test to me</b> and check the email you receive.</li><li>Double-click <b>2 - Send all</b> and type YES.</li><li>When it is done, load its <b>delivery-log.csv</b> here (More → Restore ticks from a log).</li></ol>' +
+        (win ? '<li>Works best with <b>classic Outlook</b>. With New Outlook, or if Outlook will not answer, it sends through your mailbox instead (it asks for your email password).</li></ul>'
+          : '<li>Needs <b>' + pk.app + '</b> on ' + pk.os + '.</li></ul>') +
+        '<ol class="sp-steps"><li>Unzip the pack.</li><li>' + (win ? 'Double-click <b>Check the pack</b>: it says whether Outlook is ready.</li><li>' : '') + 'Double-click <b>1 - Send test to me</b> and check the email you receive.</li><li>Double-click <b>2 - Send all</b> and type YES.</li><li>When it is done, load its <b>delivery-log.csv</b> here (More → Restore ticks from a log).</li></ol>' +
         '<div class="actions"><button type="button" class="btn btn-primary" data-sp="go">Download the pack</button><button type="button" class="btn btn-ghost" data-sp="no">Cancel</button></div>'
     });
     var count = function () {
