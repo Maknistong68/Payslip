@@ -2,6 +2,31 @@
 
 Tested on 17 Oct 2026 against the current parser (`js/schema.js`) with 16 realistic contractor-sheet cases.
 
+## Status: implemented
+
+Everything proposed below is now built (17 Oct 2026); each worst case has a test in `tools/test.js` (section 3d).
+
+| # | Case | Now |
+|---|---|---|
+| 1 | Two sites as two sheets | Combined automatically; sheet picker on Review |
+| 2 | One sheet per month | Picks the pay period's month, else the latest |
+| 3 | Decimal comma | Detected per column, read correctly, info note |
+| 4 | US dates | Month-first column detected and flagged; impossible dates are errors |
+| 5 | `#N/A` / `#REF!` cells | Row flagged with the cell reference |
+| 6 | Hidden rows | Skipped with a note; "Include hidden rows" toggle |
+| 7 | Negative deductions | Accepted as deductions, info note |
+| 8 | Arabic-Indic digits | Converted |
+| 9 | Name + Net only | Net-only payslips |
+| 10 | Arabic headers | Recognised (aliases + Arabic normalisation) |
+| 11 | Department heading rows | Used as the department of the rows below |
+| 12 | First / Last name | Joined |
+| 13 | Header below notes | Searched in 200 rows; header-row picker |
+
+Also built: reconciliation totals with a bank / WPS total check, a saved-setup badge, a paste box, password-protected
+file message, and the redesigned template (section 4) with ExcelJS.
+
+The sections below are the original assessment, kept for reference.
+
 ## 1. The template we hand out today
 
 **What works**

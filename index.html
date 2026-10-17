@@ -88,6 +88,15 @@
         </div>
       </div>
 
+      <details class="hint paste">
+        <summary>No usable file? Paste the cells instead</summary>
+        <div class="paste-wrap">
+          <p class="muted small">In Excel, select the table including its title row, press Ctrl+C, then paste here with Ctrl+V.</p>
+          <textarea id="pasteBox" rows="6" placeholder="Name&#9;Basic&#9;Housing&#10;Ali Hassan&#9;3000&#9;750"></textarea>
+          <button type="button" class="btn btn-primary btn-small" id="btnUsePaste">Use pasted cells</button>
+        </div>
+      </details>
+
       <details class="hint">
         <summary>Excel rules in 20 seconds</summary>
         <ul>
@@ -108,9 +117,11 @@
         </div>
         <button type="button" class="btn btn-small" id="btnChangeFile">Choose another file</button>
       </div>
+      <div class="source-bar hidden" id="sourceBar"></div>
 
       <div id="statusBanner"></div>
       <div class="summary-grid" id="summaryGrid"></div>
+      <div class="reconcile spot" id="reconcile"></div>
 
       <details class="section spot" id="secCompany">
         <summary>
@@ -381,6 +392,7 @@
   <script src="js/xlsx-images.js"></script>
   <script src="js/pdf.js"></script>
   <script src="js/delivery.js"></script>
+  <script src="js/template-xlsx.js"></script>
   <script src="js/art.js"></script>
   <script src="js/app.js"></script>
 </body>

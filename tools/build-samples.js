@@ -1,20 +1,24 @@
 #!/usr/bin/env node
-/* Builds samples/Payslip_Template.xlsx and samples/Sample_Payslips.xlsx using the same
- * schema code that the web page uses. Run: node tools/build-samples.js */
+/* Builds samples/Payslip_Template.xlsx and samples/Sample_Payslips.xlsx with the same
+ * styled, validated template the web page downloads. Run: node tools/build-samples.js */
 'use strict';
 var path = require('path');
 var fs = require('fs');
-var XLSX = require(path.join(__dirname, '..', 'js', 'vendor', 'xlsx.full.min.js'));
+var ExcelJS = require(path.join(__dirname, '..', 'js', 'vendor', 'exceljs.min.js'));
 var Schema = require(path.join(__dirname, '..', 'js', 'schema.js'));
+var PayslipTemplate = require(path.join(__dirname, '..', 'js', 'template-xlsx.js'));
 
 var outDir = path.join(__dirname, '..', 'samples');
 if (!fs.existsSync(outDir)) fs.mkdirSync(outDir);
 
-var tpl = Schema.buildTemplateWorkbook(XLSX);
-fs.writeFileSync(path.join(outDir, 'Payslip_Template.xlsx'), XLSX.write(tpl, { type: 'buffer', bookType: 'xlsx', cellDates: true }));
+function write(name, opts) {
+  return PayslipTemplate.build(ExcelJS, opts).then(function (buf) {
+    var file = path.join(outDir, name);
+    fs.writeFileSync(file, Buffer.from(buf));
+    console.log('Wrote', file);
+  });
+}
 
-var sample = Schema.buildTemplateWorkbook(XLSX, { sampleRows: Schema.sampleRows(25) });
-fs.writeFileSync(path.join(outDir, 'Sample_Payslips.xlsx'), XLSX.write(sample, { type: 'buffer', bookType: 'xlsx', cellDates: true }));
-
-console.log('Wrote', path.join(outDir, 'Payslip_Template.xlsx'));
-console.log('Wrote', path.join(outDir, 'Sample_Payslips.xlsx'));
+write('Payslip_Template.xlsx', {})
+  .then(function () { return write('Sample_Payslips.xlsx', { records: Schema.sampleRecords(25), sample: true }); })
+  .catch(function (e) { console.error(e); process.exit(1); });

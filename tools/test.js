@@ -11,7 +11,7 @@ var PDF = require(path.join(__dirname, '..', 'js', 'pdf.js'));
 var jsPDF = jspdf.jsPDF;
 require(path.join(__dirname, '..', 'js', 'fonts', 'amiri.js'));
 
-function readWb(buf) { return XLSX.read(buf, { type: 'buffer', cellDates: true }); }
+function readWb(buf) { return XLSX.read(buf, { type: 'buffer', cellDates: true, cellStyles: true }); }
 function wbToBuf(wb) { return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx', cellDates: true }); }
 
 // 1. Template round-trip: template alone has no rows (example row ignored) and reports missing settings.
@@ -114,23 +114,31 @@ assert.strictEqual(o2.slips[0].employeeId, 'EMP-001', 'generated id when no id c
 assert.ok(o2.issues.some(function (i) { return i.code === 'missing-id'; }));
 assert.ok(o2.slips[0].issues.some(function (i) { return /Gross salary in the file/.test(i.message); }), 'gross mismatch now reported');
 
-// Totally unrecognisable headers (e.g. Arabic) -> error + mapping choices still work
+// Arabic headers are recognised on their own now
 var ar = XLSX.utils.book_new();
 XLSX.utils.book_append_sheet(ar, XLSX.utils.aoa_to_sheet([
   ['الرقم', 'الاسم', 'الراتب الأساسي', 'بدل السكن', 'الصافي'],
   ['1', 'Ahmed', 3000, 500, 3500]
 ]), 'ورقة1');
 var a = Schema.parseWorkbook(XLSX, readWb(wbToBuf(ar)));
-assert.ok(a.issues.some(function (i) { return i.code === 'no-header' || i.code === 'missing-name'; }), JSON.stringify(a.issues));
-assert.strictEqual(a.columns.length, 5);
-var a2 = Schema.parseWorkbook(XLSX, readWb(wbToBuf(ar)), { overrides: {
-  [Schema.normalizeHeader('الاسم')]: { kind: 'column', key: 'name' },
-  [Schema.normalizeHeader('الراتب الأساسي')]: { kind: 'column', key: 'basicSalary' },
-  [Schema.normalizeHeader('بدل السكن')]: { kind: 'column', key: 'housing' }
+assert.strictEqual(a.slips.length, 1, JSON.stringify(a.issues));
+assert.strictEqual(a.slips[0].net, 3500);
+assert.strictEqual(a.stats.fileErrors, 0, JSON.stringify(a.issues));
+
+// Truly unknown headers -> error, then manual mapping rescues the file
+var unk = XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(unk, XLSX.utils.aoa_to_sheet([
+  ['Col A', 'Col B', 'Col C', 'Col D'],
+  ['1', 'Ahmed', 3000, 500]
+]), 'Data');
+var u = Schema.parseWorkbook(XLSX, readWb(wbToBuf(unk)));
+assert.ok(u.issues.some(function (i) { return i.code === 'no-header' || i.code === 'missing-name'; }), JSON.stringify(u.issues));
+var u2 = Schema.parseWorkbook(XLSX, readWb(wbToBuf(unk)), { overrides: {
+  'col b': { kind: 'column', key: 'name' }, 'col c': { kind: 'column', key: 'basicSalary' }, 'col d': { kind: 'column', key: 'housing' }
 } });
-assert.strictEqual(a2.slips.length, 1);
-assert.strictEqual(a2.slips[0].net, 3500);
-assert.strictEqual(a2.stats.fileErrors, 0, JSON.stringify(a2.issues));
+assert.strictEqual(u2.slips.length, 1);
+assert.strictEqual(u2.slips[0].net, 3500);
+assert.strictEqual(u2.stats.fileErrors, 0, JSON.stringify(u2.issues));
 
 // CSV-ish single sheet with template headers but no Settings
 var csv = XLSX.utils.book_new();
@@ -195,6 +203,112 @@ var regDoc = PDF.createDoc(jsPDF, 'a4');
 PDF.renderRegister(regDoc, { settings: sample.settings, slips: sample.slips });
 assert.ok(regDoc.internal.getNumberOfPages() >= 1);
 
+
+// 3d. Worst cases from docs/EXCEL_ASSESSMENT.md
+function wbOf(sheets, mut) {
+  var w = XLSX.utils.book_new();
+  sheets.forEach(function (sh) { var ws = XLSX.utils.aoa_to_sheet(sh[1]); if (mut) mut(ws, sh[0]); XLSX.utils.book_append_sheet(w, ws, sh[0]); });
+  return readWb(wbToBuf(w));
+}
+function codes(p) { return p.issues.map(function (i) { return i.code; }); }
+var WH = ['Name', 'Basic', 'Housing', 'GOSI', 'Net'];
+// two sites -> combined, department = sheet name
+var w1 = Schema.parseWorkbook(XLSX, wbOf([['Site A', [WH, ['Ali', 3000, 750, 100, 3650], ['Omar', 2000, 500, 0, 2500]]], ['Site B', [WH, ['Raju', 1800, 0, 0, 1800], ['Jose', 2200, 0, 0, 2200]]]]));
+assert.strictEqual(w1.slips.length, 4, 'both sheets combined');
+assert.strictEqual(w1.sheetMode, 'combined');
+assert.ok(codes(w1).indexOf('combined') >= 0);
+assert.strictEqual(w1.slips[2].fields.department, 'Site B');
+assert.strictEqual(w1.slips[2].employeeId, 'EMP-003', 'generated ids continue across sheets');
+assert.strictEqual(w1.sheets.length, 2);
+// pick one sheet explicitly
+var w1b = Schema.parseWorkbook(XLSX, wbOf([['Site A', [WH, ['Ali', 3000, 750, 100, 3650]]], ['Site B', [WH, ['Raju', 1800, 0, 0, 1800]]]]), { sheet: 'Site B' });
+assert.strictEqual(w1b.slips.length, 1);
+assert.strictEqual(w1b.slips[0].name, 'Raju');
+// month sheets -> latest, or the one matching the pay period
+var mSheets = [['Sep 2026', [WH, ['Ali', 3000, 750, 100, 3650]]], ['Oct 2026', [WH, ['Ali', 3100, 750, 100, 3750]]]];
+var w2 = Schema.parseWorkbook(XLSX, wbOf(mSheets));
+assert.strictEqual(w2.sheetName, 'Oct 2026');
+assert.strictEqual(w2.slips[0].net, 3750);
+assert.ok(codes(w2).indexOf('month-sheet') >= 0);
+var w2b = Schema.parseWorkbook(XLSX, wbOf(mSheets), { payPeriod: 'September 2026' });
+assert.strictEqual(w2b.sheetName, 'Sep 2026');
+// negative deductions
+var w3 = Schema.parseWorkbook(XLSX, wbOf([['S', [WH, ['Ali', 3000, 750, -100, 3650], ['Omar', 2000, 500, -50, 2450]]]]));
+assert.strictEqual(w3.stats.withErrors, 0, JSON.stringify(w3.slips[0].issues));
+assert.strictEqual(w3.slips[0].net, 3650);
+assert.ok(codes(w3).indexOf('negative-deductions') >= 0);
+// decimal comma
+var w4 = Schema.parseWorkbook(XLSX, wbOf([['S', [['Name', 'Basic', 'Housing'], ['Ali', '3.000,50', '750,25'], ['Omar', '2.500,00', '3.000']]]]));
+assert.strictEqual(w4.slips[0].gross, 3750.75, 'euro amounts');
+assert.strictEqual(w4.slips[1].gross, 5500, '"3.000" in a decimal-comma column is three thousand');
+assert.ok(codes(w4).indexOf('decimal-comma') >= 0);
+assert.strictEqual(Schema.parseNumber('1,234.50').value, 1234.5);
+assert.strictEqual(Schema.parseNumber('3,000').value, 3000);
+assert.strictEqual(Schema.parseNumber('1,5').value, 1.5);
+assert.strictEqual(Schema.parseNumber('BHD 1.500').value, 1.5, 'three-decimal currencies stay intact');
+assert.strictEqual(Schema.parseNumber('150-').value, -150, 'trailing minus');
+// Arabic-Indic digits
+var w5 = Schema.parseWorkbook(XLSX, wbOf([['S', [['Name', 'Basic', 'Iqama'], ['Ali', '٣٠٠٠', '٢٤٥٦٧٨٩٠١٢']]]]));
+assert.strictEqual(w5.slips[0].gross, 3000);
+assert.strictEqual(w5.slips[0].fields.nationalId, '2456789012');
+assert.strictEqual(w5.stats.withErrors, 0);
+// first / last name
+var w6 = Schema.parseWorkbook(XLSX, wbOf([['S', [['First Name', 'Last Name', 'Basic'], ['Ali', 'Hassan', 3000]]]]));
+assert.strictEqual(w6.slips[0].name, 'Ali Hassan');
+assert.ok(codes(w6).indexOf('name-joined') >= 0);
+// section heading rows
+var w7 = Schema.parseWorkbook(XLSX, wbOf([['S', [['Name', 'Basic', 'Housing'], ['PROJECTS DEPARTMENT', null, null], ['Ali', 3000, 750], ['Total Projects', 3000, 750], ['FINANCE', null, null], ['Sara', 4000, 1000]]]]));
+assert.strictEqual(w7.slips.length, 2);
+assert.strictEqual(w7.stats.withErrors, 0);
+assert.strictEqual(w7.slips[0].fields.department, 'PROJECTS DEPARTMENT');
+assert.strictEqual(w7.slips[1].fields.department, 'FINANCE');
+// hidden rows skipped, can be included
+var hidMut = function (ws) { ws['!rows'] = [null, null, { hidden: true }]; };
+var w8 = Schema.parseWorkbook(XLSX, wbOf([['S', [['Name', 'Basic'], ['Ali', 3000], ['Hidden Guy', 2000], ['Omar', 2500]]]], hidMut));
+assert.strictEqual(w8.slips.length, 2, 'hidden row skipped');
+assert.strictEqual(w8.hiddenRows[0].label, 'Hidden Guy');
+assert.ok(codes(w8).indexOf('hidden-rows') >= 0);
+var w8b = Schema.parseWorkbook(XLSX, wbOf([['S', [['Name', 'Basic'], ['Ali', 3000], ['Hidden Guy', 2000], ['Omar', 2500]]]], hidMut), { includeHidden: true });
+assert.strictEqual(w8b.slips.length, 3);
+// error cells reported
+var w9 = Schema.parseWorkbook(XLSX, wbOf([['S', [['Name', 'Basic', 'Housing'], ['Ali', 3000, 750], ['Omar', 2000, 500]]]], function (ws) { ws.C3 = { t: 'e', v: 0x2A, w: '#N/A' }; }));
+assert.ok(w9.slips[1].hasErrors, 'error cell flags the row');
+assert.ok(w9.slips[1].issues.some(function (i) { return /#N\/A/.test(i.message); }));
+// net-only sheets
+var w10 = Schema.parseWorkbook(XLSX, wbOf([['S', [['Employee Name', 'Net Salary'], ['Ali', 3650], ['Omar', 2500]]]]));
+assert.strictEqual(w10.stats.fileErrors, 0, JSON.stringify(w10.issues));
+assert.strictEqual(w10.slips[0].net, 3650);
+assert.strictEqual(w10.slips[0].earnings[0].label, 'Net Salary');
+assert.ok(codes(w10).indexOf('net-only') >= 0);
+// header far below notes
+var notes = []; for (var q = 0; q < 60; q++) notes.push(['note ' + q]);
+var w12 = Schema.parseWorkbook(XLSX, wbOf([['S', notes.concat([['Name', 'Basic'], ['Ali', 3000]])]]));
+assert.strictEqual(w12.slips.length, 1);
+assert.strictEqual(w12.headerRow, 61);
+// forced header row
+var w12b = Schema.parseWorkbook(XLSX, wbOf([['S', [['Report'], ['Who', 'Pay'], ['Ali', 3000]]]]), { sheet: 'S', headerRow: 2, overrides: { who: { kind: 'column', key: 'name' }, pay: { kind: 'column', key: 'basicSalary' } } });
+assert.strictEqual(w12b.slips.length, 1);
+assert.strictEqual(w12b.slips[0].gross, 3000);
+// US dates
+var w15 = Schema.parseWorkbook(XLSX, wbOf([['S', [['Name', 'Basic', 'Joining Date'], ['Ali', 3000, '03/15/2024'], ['Omar', 2000, '04/05/2024']]]]));
+assert.strictEqual(w15.slips[0].fields.joiningDate, '15 Mar 2024');
+assert.strictEqual(w15.slips[1].fields.joiningDate, '05 Apr 2024', 'ambiguous value follows the column (month/day)');
+assert.ok(codes(w15).indexOf('us-dates') >= 0);
+assert.strictEqual(Schema.readDate('31/02/2024').invalid, true, 'impossible dates are flagged, not rolled over');
+// hidden sheets ignored; our template helper columns ignored silently
+var w16 = Schema.parseWorkbook(XLSX, (function () {
+  var w = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(w, XLSX.utils.aoa_to_sheet([['Name', 'Basic', 'Check'], ['Ali', 3000, '✓']]), 'Payslips');
+  XLSX.utils.book_append_sheet(w, XLSX.utils.aoa_to_sheet([['Name', 'Basic'], ['Ghost', 1]]), 'Old');
+  var b = readWb(wbToBuf(w)); b.Workbook = b.Workbook || {}; b.Workbook.Sheets = [{ name: 'Payslips', Hidden: 0 }, { name: 'Old', Hidden: 1 }];
+  return b;
+})());
+assert.strictEqual(w16.slips.length, 1);
+assert.ok(!w16.issues.some(function (i) { return i.code === 'ignored-columns'; }), 'Check column ignored silently');
+assert.ok(w16.issues.some(function (i) { return /Hidden sheet/.test(i.message); }));
+assert.strictEqual(Schema.monthInfo('أكتوبر 2026').month, 10);
+assert.strictEqual(Schema.monthInfo('Oct-26').year, 2026);
+
 // 4. Amount in words
 assert.strictEqual(Schema.amountToWords(1234.5, 'SAR'), 'One Thousand Two Hundred Thirty-Four Saudi Riyals and Fifty Halalas Only');
 assert.strictEqual(Schema.amountToWords(1, 'SAR'), 'One Saudi Riyal Only');
@@ -257,4 +371,34 @@ big.slips.forEach(function (slip, i) {
 var bigBuf = Buffer.from(bigDoc.output('arraybuffer'));
 console.log('1000 payslips rendered in', Date.now() - t0, 'ms,', (bigBuf.length / 1024 / 1024).toFixed(1), 'MB');
 
-console.log('All tests passed.');
+// Styled ExcelJS template: round-trips through the parser, keeps validations, carries the logo.
+var ExcelJS = require(path.join(__dirname, '..', 'js', 'vendor', 'exceljs.min.js'));
+var JSZip = require(path.join(__dirname, '..', 'js', 'vendor', 'jszip.min.js'));
+var PayslipTemplate = require(path.join(__dirname, '..', 'js', 'template-xlsx.js'));
+var XlsxImages = require(path.join(__dirname, '..', 'js', 'xlsx-images.js'));
+var PNG_1PX = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+(async function () {
+  var empty = Schema.parseWorkbook(XLSX, readWb(Buffer.from(await PayslipTemplate.build(ExcelJS, {}))));
+  assert.strictEqual(empty.slips.length, 0, 'styled template: example row ignored');
+  assert.ok(empty.settingsFound);
+  assert.ok(!empty.issues.some(function (i) { return i.level === 'warn'; }), JSON.stringify(empty.issues));
+
+  var full = Schema.parseWorkbook(XLSX, readWb(Buffer.from(await PayslipTemplate.build(ExcelJS, { records: Schema.sampleRecords(25), sample: true }))));
+  assert.strictEqual(full.slips.length, 25);
+  assert.strictEqual(full.stats.withErrors, 0, JSON.stringify(full.slips.filter(function (s) { return s.hasErrors; }).map(function (s) { return s.issues; })));
+  assert.strictEqual(full.stats.withWarnings, 0);
+  assert.strictEqual(full.settings.companyName, 'Example Contracting Co. Ltd.');
+  assert.ok(/\d{4}/.test(full.slips[0].fields.joiningDate), 'dates read back');
+
+  var mineBuf = Buffer.from(await PayslipTemplate.build(ExcelJS, { settings: { companyName: 'Acme Build' }, logo: { dataUrl: PNG_1PX, width: 1, height: 1 }, stamp: { dataUrl: PNG_1PX, width: 1, height: 1 } }));
+  assert.strictEqual(Schema.parseWorkbook(XLSX, readWb(mineBuf)).settings.companyName, 'Acme Build');
+  var imgs = await XlsxImages.extractImages(JSZip, mineBuf);
+  assert.strictEqual(imgs.length, 2, 'logo and stamp embedded');
+
+  var check = new ExcelJS.Workbook();
+  await check.xlsx.load(mineBuf);
+  var ws = check.getWorksheet('Payslips');
+  assert.ok(Object.keys(ws.dataValidations.model).length >= 10, 'data validation kept');
+  assert.ok(check.getWorksheet('Lists').state === 'hidden');
+  console.log('All tests passed.');
+})().catch(function (e) { console.error(e); process.exit(1); });

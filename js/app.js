@@ -54,7 +54,9 @@
     cache: {},          // employeeId -> { bytes, fileName, password, hash }
     dirHandle: null,    // File System Access directory handle after a folder export
     exportedTo: '',     // human text: where the PDFs went
-    log: []             // delivery log entries for the current company+period
+    log: [],            // delivery log entries for the current company+period
+    parseOptions: { sheet: 'auto', headerRow: null, includeHidden: false },
+    bankTotal: ''
   };
 
   // ---------------------------------------------------------------------------
@@ -227,26 +229,74 @@
     return XLSX.write(wb, { type: 'array', bookType: 'xlsx', cellDates: true });
   }
 
+  // The styled template (validation, formulas, notes) needs ExcelJS, loaded only when a template is downloaded.
+  var excelJsPromise = null;
+  function loadExcelJS() {
+    if (window.ExcelJS) return Promise.resolve(window.ExcelJS);
+    if (!excelJsPromise) {
+      excelJsPromise = new Promise(function (resolve, reject) {
+        var sc = document.createElement('script');
+        sc.src = 'js/vendor/exceljs.min.js';
+        sc.onload = function () { window.ExcelJS ? resolve(window.ExcelJS) : reject(new Error('ExcelJS did not load')); };
+        sc.onerror = function () { excelJsPromise = null; reject(new Error('js/vendor/exceljs.min.js is missing')); };
+        document.head.appendChild(sc);
+      });
+    }
+    return excelJsPromise;
+  }
+
+  function downloadTemplate(opts, fileName, fallback) {
+    return loadExcelJS().then(function (ExcelJS) {
+      return PayslipTemplate.build(ExcelJS, opts);
+    }).then(function (buf) {
+      downloadBlob(new Blob([buf], { type: XLSX_MIME }), fileName);
+    }).catch(function (e) {
+      // plain template without styling if the styled one cannot be built
+      if (fallback) fallback();
+      else alert('Could not build the template: ' + e.message);
+    });
+  }
+
   $('btnTemplate').addEventListener('click', function () {
-    downloadBlob(new Blob([workbookToArray(Schema.buildTemplateWorkbook(XLSX))], { type: XLSX_MIME }), 'Payslip_Template.xlsx');
+    downloadTemplate({}, 'Payslip_Template.xlsx', function () {
+      downloadBlob(new Blob([workbookToArray(Schema.buildTemplateWorkbook(XLSX))], { type: XLSX_MIME }), 'Payslip_Template.xlsx');
+    });
   });
   $('btnSampleXlsx').addEventListener('click', function () {
-    downloadBlob(new Blob([workbookToArray(Schema.buildTemplateWorkbook(XLSX, { sampleRows: Schema.sampleRows(25) }))], { type: XLSX_MIME }), 'Sample_Payslips.xlsx');
+    downloadTemplate({ records: Schema.sampleRecords(25), sample: true }, 'Sample_Payslips.xlsx', function () {
+      downloadBlob(new Blob([workbookToArray(Schema.buildTemplateWorkbook(XLSX, { sampleRows: Schema.sampleRows(25) }))], { type: XLSX_MIME }), 'Sample_Payslips.xlsx');
+    });
   });
   $('btnLoadSample').addEventListener('click', function () {
     loadWorkbookData(workbookToArray(Schema.buildTemplateWorkbook(XLSX, { sampleRows: Schema.sampleRows(25) })), 'Sample data (25 employees)');
   });
 
+  // Template pre-filled with the company details and the logo/stamp pictures.
   $('btnMyTemplate').addEventListener('click', function () {
-    var buf = workbookToArray(Schema.buildTemplateWorkbook(XLSX, { settings: state.company }));
-    var images = [];
-    var logo = effectiveImage('logo');
-    var stamp = effectiveImage('stamp');
-    if (logo) images.push({ dataUrl: logo.dataUrl, width: logo.width, height: logo.height, name: 'Logo', row: 1, col: 4, maxPx: 220 });
-    if (stamp) images.push({ dataUrl: stamp.dataUrl, width: stamp.width, height: stamp.height, name: 'Stamp', row: 8, col: 4, maxPx: 160 });
-    XlsxImages.embedImages(JSZip, buf, Schema.SHEET_SETTINGS, images).then(function (out) {
-      downloadBlob(new Blob([out], { type: XLSX_MIME }), PDF.safeFileName('Payslip_Template - ' + (state.company.companyName || 'my company')) + '.xlsx');
-    }).catch(function (e) { alert('Could not build the template: ' + e.message); });
+    var name = PDF.safeFileName('Payslip_Template - ' + (state.company.companyName || 'my company')) + '.xlsx';
+    downloadTemplate({ settings: state.company, logo: effectiveImage('logo'), stamp: effectiveImage('stamp') }, name, function () {
+      var buf = workbookToArray(Schema.buildTemplateWorkbook(XLSX, { settings: state.company }));
+      var images = [];
+      var logo = effectiveImage('logo');
+      var stamp = effectiveImage('stamp');
+      if (logo) images.push({ dataUrl: logo.dataUrl, width: logo.width, height: logo.height, name: 'Logo', row: 1, col: 4, maxPx: 220 });
+      if (stamp) images.push({ dataUrl: stamp.dataUrl, width: stamp.width, height: stamp.height, name: 'Stamp', row: 8, col: 4, maxPx: 160 });
+      XlsxImages.embedImages(JSZip, buf, Schema.SHEET_SETTINGS, images).then(function (out) {
+        downloadBlob(new Blob([out], { type: XLSX_MIME }), name);
+      });
+    });
+  });
+
+  // Paste cells straight from Excel (last resort when the file itself cannot be used).
+  $('btnUsePaste').addEventListener('click', function () {
+    var text = $('pasteBox').value;
+    if (!text.trim()) { setAlert($('loadError'), 'Paste the cells first (select them in Excel, Ctrl+C, then Ctrl+V here).', 'warn'); return; }
+    try {
+      var wb = XLSX.read(text, { type: 'string', FS: text.indexOf('\t') >= 0 ? '\t' : ',', cellDates: true, raw: false });
+      loadWorkbookObject(wb, 'Pasted cells', null);
+    } catch (e) {
+      setAlert($('loadError'), 'These cells could not be read: ' + escapeHtml(e.message), 'error');
+    }
   });
 
   var dropzone = $('dropzone');
@@ -276,11 +326,19 @@
     $('loadError').innerHTML = '';
     var wb;
     try {
-      wb = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
+      wb = XLSX.read(arrayBuffer, { type: 'array', cellDates: true, cellStyles: true });
     } catch (e) {
-      setAlert($('loadError'), 'This file could not be opened as a spreadsheet. ' + escapeHtml(e.message || ''), 'error');
+      var msg = /password|encrypt/i.test(e.message || '') ? 'This file is password protected. Open it in Excel, remove the password (File ▸ Info ▸ Protect Workbook) or Save As a new file, then try again.' : 'This file could not be opened as a spreadsheet. ' + escapeHtml(e.message || '');
+      setAlert($('loadError'), msg, 'error');
       return;
     }
+    loadWorkbookObject(wb, name, arrayBuffer);
+  }
+
+  function loadWorkbookObject(wb, name, arrayBuffer) {
+    $('loadError').innerHTML = '';
+    state.parseOptions = { sheet: 'auto', headerRow: null, includeHidden: false };
+    state.bankTotal = '';
     state.wb = wb;
     state.fileName = name;
     state.excelImages = { logo: null, stamp: null };
@@ -289,7 +347,7 @@
     $('exportMessage').innerHTML = '';
     $('sendMessage').innerHTML = '';
     reparse();
-    XlsxImages.extractImages(JSZip, arrayBuffer).then(function (images) {
+    if (arrayBuffer) XlsxImages.extractImages(JSZip, arrayBuffer).then(function (images) {
       if (!images.length) return;
       var onSettings = images.filter(function (i) { return Schema.normalizeHeader(i.sheet) === Schema.normalizeHeader(Schema.SHEET_SETTINGS); });
       var pick = onSettings.length ? onSettings : images;
@@ -302,13 +360,77 @@
   }
 
   function reparse() {
-    state.parsed = Schema.parseWorkbook(XLSX, state.wb, { overrides: state.profile.columnOverrides });
+    var o = state.parseOptions;
+    state.parsed = Schema.parseWorkbook(XLSX, state.wb, { overrides: state.profile.columnOverrides, sheet: o.sheet, headerRow: o.headerRow, includeHidden: o.includeHidden });
     mergeCompany();
     loadLog();
     invalidate();
-    $('fileName').textContent = state.fileName + (state.parsed.sheetName ? ' · sheet "' + state.parsed.sheetName + '"' : '');
+    $('fileName').textContent = state.fileName + (state.parsed.sheetName ? ' · ' + (state.parsed.sheetMode === 'combined' ? state.parsed.sheetName.toLowerCase() : 'sheet "' + state.parsed.sheetName + '"') : '');
+    renderSourceBar();
     renderReview();
     populatePreviewSelect();
+  }
+
+  // Which sheet, which header row, hidden rows, saved setup: the controls for files that are not our template.
+  function renderSourceBar() {
+    var p = state.parsed;
+    var o = state.parseOptions;
+    var bar = $('sourceBar');
+    var parts = [];
+    var dataSheets = p.sheets.filter(function (sh) { return sh.isData || sh.used; });
+    if (p.sheets.length > 1) {
+      var current = p.sheetMode === 'combined' ? '__all__' : (p.sheets.filter(function (sh) { return sh.used; })[0] || {}).name;
+      var opts = '';
+      if (dataSheets.length > 1) opts += '<option value="__all__"' + (current === '__all__' ? ' selected' : '') + '>All sheets combined</option>';
+      p.sheets.forEach(function (sh) {
+        opts += '<option value="' + escapeHtml(sh.name) + '"' + (current === sh.name ? ' selected' : '') + '>' + escapeHtml(sh.name) + ' · ' + (sh.used ? sh.employees + ' employees' : sh.rows + ' rows') + '</option>';
+      });
+      parts.push('<label class="src-ctl"><span>Sheet</span><select id="srcSheet">' + opts + '</select></label>');
+    }
+    if (p.sheetMode !== 'combined' && p.headerPreview && p.headerPreview.length) {
+      var hopts = p.headerPreview.map(function (h) {
+        return '<option value="' + h.row + '"' + (h.row === p.headerRow ? ' selected' : '') + '>Row ' + h.row + ': ' + escapeHtml(h.text) + '</option>';
+      }).join('');
+      parts.push('<label class="src-ctl"><span>Header row</span><select id="srcHeader">' + hopts + '</select></label>');
+    }
+    if (p.stats.hiddenRows || o.includeHidden) {
+      parts.push('<label class="check src-ctl"><input type="checkbox" id="srcHidden"' + (o.includeHidden ? ' checked' : '') + '> Include hidden rows' + (p.stats.hiddenRows ? ' (' + p.stats.hiddenRows + ')' : '') + '</label>');
+    }
+    var manual = p.columns.filter(function (c) { return c.source === 'manual'; }).length;
+    if (manual) {
+      parts.push('<span class="badge info" title="Your column choices from an earlier upload or settings file">Saved column setup applied · ' + plural(manual, 'column') + (state.profile.savedAt ? ' · ' + Schema.formatDate(new Date(state.profile.savedAt)) : '') + '</span>');
+    }
+    bar.innerHTML = parts.join('');
+    bar.classList.toggle('hidden', !parts.length);
+    if ($('srcSheet')) $('srcSheet').addEventListener('change', function () { o.sheet = this.value; o.headerRow = null; reparse(); });
+    if ($('srcHeader')) $('srcHeader').addEventListener('change', function () {
+      var used = p.sheets.filter(function (sh) { return sh.used; })[0];
+      o.sheet = used ? used.name : 'auto';
+      o.headerRow = +this.value;
+      reparse();
+    });
+    if ($('srcHidden')) $('srcHidden').addEventListener('change', function () { o.includeHidden = this.checked; reparse(); });
+  }
+
+  // Totals to compare with the bank / WPS transfer: the one check that catches any silent problem.
+  function renderReconcile() {
+    var st = state.parsed.stats;
+    var cur = escapeHtml(state.company.currency || 'SAR');
+    var bank = Schema.parseNumber(state.bankTotal).value;
+    var status = '';
+    if (bank != null) {
+      var diff = Schema.round2(bank - st.totalNet);
+      status = Math.abs(diff) < 0.01
+        ? '<span class="rec-ok">✓ Matches the bank transfer</span>'
+        : '<span class="rec-bad">Difference ' + cur + ' ' + Schema.formatMoney(diff) + ': look for a missing employee, a skipped row or an unmapped column.</span>';
+    }
+    $('reconcile').innerHTML =
+      '<div class="rec-figs"><div><span class="k">Earnings</span><span class="v">' + Schema.formatMoney(st.totalGross) + '</span></div>' +
+      '<div><span class="k">Deductions</span><span class="v">' + Schema.formatMoney(st.totalDeductions) + '</span></div>' +
+      '<div><span class="k">Net to pay</span><span class="v strong">' + cur + ' ' + Schema.formatMoney(st.totalNet) + '</span></div></div>' +
+      '<label class="rec-input"><span>Bank / WPS transfer total</span><input type="text" id="bankTotal" inputmode="decimal" placeholder="e.g. ' + Schema.formatMoney(st.totalNet) + '" value="' + escapeHtml(state.bankTotal) + '"></label>' +
+      '<div class="rec-status">' + status + '</div>';
+    $('bankTotal').addEventListener('change', function () { state.bankTotal = this.value; renderReconcile(); });
   }
 
   // Company settings: Excel values win, blanks are filled from the saved profile.
@@ -422,6 +544,7 @@
       Art.countUp(el, +el.getAttribute('data-money'), { duration: 1100, format: function (v) { return Schema.formatMoney(v); } });
     });
 
+    renderReconcile();
     renderCompanyForm();
     renderColumns();
 
@@ -533,6 +656,7 @@
         : c.source === 'exact' ? '<span class="badge ok">matched</span>'
         : c.source === 'guess' ? '<span class="badge warn">guessed</span>'
         : c.source === 'duplicate' ? '<span class="badge warn">duplicate</span>'
+        : c.source === 'silent' ? '<span class="badge neutral">helper column</span>'
         : '<span class="badge neutral">not recognised</span>';
       return '<tr class="' + (c.kind === 'ignored' ? 'row-warn' : '') + '">' +
         '<td><strong>' + escapeHtml(c.header) + '</strong></td>' +
@@ -570,7 +694,7 @@
         return '<div class="issue-' + (i.level === 'error' ? 'err' : 'warn') + '">' + escapeHtml(i.message) + '</div>';
       }).join('');
       return '<tr class="' + cls + '">' +
-        '<td>' + s.rowNumber + '</td><td>' + badge + '</td>' +
+        '<td>' + escapeHtml(s.rowRef || s.rowNumber) + '</td><td>' + badge + '</td>' +
         '<td>' + escapeHtml(s.employeeId) + (s.generatedId ? ' <span class="badge neutral" title="Generated">auto</span>' : '') + '</td>' +
         '<td>' + escapeHtml(s.name) + '</td>' +
         '<td class="num">' + Schema.formatMoney(s.gross) + '</td>' +
