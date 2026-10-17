@@ -5,11 +5,12 @@
  */
 'use strict';
 
-var VERSION = '2026-10-17.7';
+var VERSION = '2026-10-17.8';
 var CACHE = 'payslip-' + VERSION;
 var ASSETS = [
   './',
   'index.html',
+  'auth.html',
   'manifest.webmanifest',
   'css/styles.css',
   'css/fonts/Sora.ttf',
@@ -26,6 +27,8 @@ var ASSETS = [
   'js/art.js',
   'js/vault.js',
   'js/guide.js',
+  'js/config.js',
+  'js/msmail.js',
   'js/app.js',
   'js/pwa.js',
   'icons/icon.svg',

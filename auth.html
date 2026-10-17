@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Signing in</title>
+  <style>body{font:16px/1.5 Segoe UI,-apple-system,Arial,sans-serif;color:#1f2933;background:#f6f8fb;margin:0;padding:32px}</style>
+</head>
+<body>
+  <p id="msg">Signed in. This window closes by itself.</p>
+  <script>
+    // Microsoft sends the sign-in answer here; hand it to the payslip page (same site) and close.
+    // Nothing is stored: the one-time code is useless without the secret the page kept in memory.
+    (function () {
+      var params = new URLSearchParams(location.search || location.hash.replace(/^#/, ''));
+      var data = { type: 'payslip-ms-auth' };
+      params.forEach(function (v, k) { data[k] = v; });
+      history.replaceState(null, '', location.pathname);
+      var sent = false;
+      try { if (typeof BroadcastChannel === 'function') { var ch = new BroadcastChannel('payslip-ms-auth'); ch.postMessage(data); ch.close(); sent = true; } } catch (e) { /* older browser */ }
+      try { if (window.opener) { window.opener.postMessage(data, location.origin); sent = true; } } catch (e) { /* cut off */ }
+      if (!sent) {
+        try { localStorage.setItem('payslip-ms-auth', JSON.stringify(data)); localStorage.removeItem('payslip-ms-auth'); } catch (e) { /* no storage */ }
+      }
+      if (data.error) document.getElementById('msg').textContent = 'Sign-in did not finish: ' + (data.error_description || data.error);
+      setTimeout(function () { window.close(); }, data.error ? 4000 : 300);
+    })();
+  </script>
+</body>
+</html>

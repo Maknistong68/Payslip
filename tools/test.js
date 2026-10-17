@@ -424,6 +424,59 @@ var Delivery = require(path.join(__dirname, '..', 'js', 'delivery.js'));
   assert.strictEqual(Vault.timeAgo(t(0), Date.parse(t(5))), '5 min ago');
 })();
 
+// Sign in with Microsoft: links, PKCE, the email Microsoft gets, retries, token refresh, plain-word errors.
+(async function () {
+  var Ms = require('../js/msmail.js');
+  Ms.configure({ clientId: 'client-123', redirectUri: 'https://payslips.example/auth.html', sleep: function () { return Promise.resolve(); } });
+  var u = new URL(Ms.authorizeUrl({ state: 'st', challenge: 'ch' }));
+  assert.strictEqual(u.origin + u.pathname, 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize');
+  assert.strictEqual(u.searchParams.get('client_id'), 'client-123');
+  assert.strictEqual(u.searchParams.get('redirect_uri'), 'https://payslips.example/auth.html');
+  assert.strictEqual(u.searchParams.get('code_challenge_method'), 'S256');
+  assert.deepStrictEqual(u.searchParams.get('scope').split(' '), ['openid', 'profile', 'offline_access', 'https://graph.microsoft.com/Mail.Send'], 'only send mail, nothing to read');
+  assert.ok(/adminconsent\?client_id=client-123&scope=https%3A%2F%2Fgraph\.microsoft\.com%2FMail\.Send/.test(Ms.adminConsentUrl()));
+  // RFC 7636 appendix B
+  assert.strictEqual(await Ms._test.challengeFor('dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'), 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM');
+  var idToken = 'x.' + Buffer.from(JSON.stringify({ name: 'علي Payroll', preferred_username: 'payroll@contoso.com' })).toString('base64url') + '.y';
+  assert.deepStrictEqual(Ms._test.keep({ access_token: 't1', refresh_token: 'r1', expires_in: 3600, id_token: idToken }), { name: 'علي Payroll', username: 'payroll@contoso.com' });
+  var body = JSON.parse(Ms._test.mailBody({ to: 'ali@example.com', subject: 'Payslip "Oct"', text: 'Dear علي,\n\nBest', fileName: 'E1.pdf', bytes: new Uint8Array(Buffer.from('%PDF-1.4 E1')) }));
+  assert.strictEqual(body.message.toRecipients[0].emailAddress.address, 'ali@example.com');
+  assert.strictEqual(body.message.body.content, 'Dear علي,\n\nBest');
+  assert.strictEqual(body.message.attachments[0].name, 'E1.pdf');
+  assert.strictEqual(Buffer.from(body.message.attachments[0].contentBytes, 'base64').toString(), '%PDF-1.4 E1');
+  assert.strictEqual(body.saveToSentItems, true);
+
+  var calls = [];
+  var replies = [];
+  var res = function (status, json, headers) { return { ok: status >= 200 && status < 300, status: status, headers: { get: function (h) { return (headers || {})[h] || null; } }, json: function () { return Promise.resolve(json || {}); } }; };
+  Ms.configure({ fetch: function (url, init) { calls.push({ url: url, init: init }); return Promise.resolve(replies.shift()); } });
+  var mail = { to: 'ali@example.com', subject: 's', text: 't', fileName: 'E1.pdf', bytes: new Uint8Array([37, 80]) };
+  var waited = [];
+  replies = [res(429, {}, { 'Retry-After': '7' }), res(202)];
+  assert.strictEqual(await Ms.sendMail(Object.assign({ onWait: function (s) { waited.push(s); } }, mail)), true, 'throttled, waited, sent');
+  assert.deepStrictEqual(waited, [7]);
+  assert.strictEqual(calls[0].url, 'https://graph.microsoft.com/v1.0/me/sendMail');
+  assert.strictEqual(calls[0].init.headers.Authorization, 'Bearer t1');
+  calls = [];
+  replies = [res(401), res(200, { access_token: 't2', expires_in: 3600 }), res(202)];
+  await Ms.sendMail(mail);
+  assert.ok(/oauth2\/v2\.0\/token$/.test(calls[1].url) && /grant_type=refresh_token&refresh_token=r1/.test(calls[1].init.body), 'expired token refreshed quietly');
+  assert.strictEqual(calls[2].init.headers.Authorization, 'Bearer t2');
+  assert.deepStrictEqual(Ms.account(), { name: 'علي Payroll', username: 'payroll@contoso.com' }, 'refresh keeps the account');
+  replies = [res(400, { error: { code: 'ErrorInvalidRecipients', message: 'At least one recipient is not valid.' } })];
+  var err = await Ms.sendMail(mail).then(function () { return null; }, function (e) { return e; });
+  assert.ok(err && err.code === 'ErrorInvalidRecipients' && /not accept this email address/.test(Ms.hint(err)) && !Ms.stopsRun(err), 'a bad address skips that person only');
+  replies = [res(403, { error: { code: 'ErrorAccessDenied', message: 'Access is denied.' } })];
+  err = await Ms.sendMail(mail).then(function () { return null; }, function (e) { return e; });
+  assert.ok(/payroll email address/.test(Ms.hint(err)) && Ms.stopsRun(err));
+  assert.ok(/IT approve/.test(Ms.hint({ code: 'invalid_grant', message: 'AADSTS65001: The user or administrator has not consented' })));
+  assert.ok(/pop-ups/.test(Ms.hint({ code: 'popup_blocked' })));
+  Ms.signOut();
+  assert.strictEqual(Ms.account(), null);
+  err = await Ms.sendMail(mail).then(function () { return null; }, function (e) { return e; });
+  assert.ok(/Sign in with Microsoft again/.test(Ms.hint(err)), 'signed out: nothing sent');
+})().catch(function (e) { console.error(e); process.exit(1); });
+
 // Outlook on the web: everything typed, special characters and line breaks kept.
 (function () {
   var link = Delivery.outlookWebLink('ali@example.com', 'Payslip October 2026 - A&B Co', 'Dear Ali,\n\nPassword: your Iqama number.');

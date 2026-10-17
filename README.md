@@ -101,6 +101,38 @@ The steps:
      Merge pack for Gmail or any mailbox, the delivery log CSV, restore ticks from a log, clear ticks.
    Rows are ticked as you send; the ticks survive reloads and export as a delivery log CSV with file hashes.
 
+### Sign in with Microsoft (send everything from the page, any device)
+
+When this copy of the app has a Microsoft app registration ID in `js/config.js`, the Send step shows
+**Sign in with Microsoft**. The user signs in once with the payroll mailbox (Microsoft 365 or Outlook.com),
+sends a test to themselves, then **Send N emails now**: every payslip goes from their own mailbox with its
+PDF attached (a copy lands in Sent Items), one every ~2 seconds, ticked as it goes; Stop and continue any
+time. While signed in, the viewer's email button sends straight away. Works on Windows, Mac, Linux, Android
+and iPhone, with New Outlook, classic Outlook or no Outlook, and needs no scripts.
+
+Privacy: there is no server and no database. The sign-in runs between the browser and Microsoft
+(OAuth authorization code with PKCE, in a popup that returns to `auth.html`); the token is kept only in
+the page's memory and is gone when the page closes or on *sign out*; each email goes from the browser to
+Microsoft Graph (`/me/sendMail`). The app asks only for *Mail.Send* (plus sign-in basics), so it cannot
+read anyone's mail. The app registration is a public ID: it gives its owner no access to users or emails.
+
+**One-time setup** (whoever hosts the app; free):
+1. Sign in to <https://entra.microsoft.com> with a work account allowed to register apps (or create a free
+   Azure account), then *Identity → Applications → App registrations → New registration*.
+2. Name: `Payslip Generator`. Supported account types: *Accounts in any organizational directory and personal
+   Microsoft accounts*. Redirect URI: platform **Single-page application (SPA)**, value
+   `https://<your-site>/auth.html` (add `http://localhost:8080/auth.html` too for local testing).
+3. *API permissions*: add Microsoft Graph → Delegated → **Mail.Send** (User.Read is there by default). No client
+   secret or certificate: the page is a public client.
+4. Recommended: *Branding & properties* → set the publisher domain, and complete **publisher verification**
+   (needs a free Microsoft AI Cloud Partner Program ID). Verified apps show the organisation's name instead of
+   "unverified", and companies that only allow verified apps let their users approve it themselves.
+5. Copy the *Application (client) ID* into `js/config.js` (`microsoftClientId`) and deploy.
+
+Where a contractor's company lets only IT approve apps, Microsoft says so at sign-in; the page then offers
+*Copy the approval link for IT*: one admin approval covers everyone in that company. Gmail, Zoho and other
+providers keep using the send-all packs or one email at a time.
+
 ### First visit and never losing work
 
 - **First visit** (nothing saved in this browser): a short animated guide opens by itself (template, fill,
@@ -196,6 +228,9 @@ js/fonts/         Amiri Regular/Bold as base64 for Arabic text, plus its OFL lic
 js/app.js         the step-by-step UI, company profile, preview, viewer and sending, session restore
 js/art.js         logo, the mascot "Qasi" and its moods, confetti, count-up numbers, card spotlight
 js/guide.js       animated guide, dialogs and toasts (SVG scenes animated with CSS)
+js/msmail.js      Sign in with Microsoft: PKCE popup sign-in, token in memory, Graph sendMail (also runs in Node)
+js/config.js      this copy's settings (the Microsoft app registration ID)
+auth.html         where Microsoft's sign-in returns; hands the answer to the page and closes
 js/vault.js       IndexedDB store, append-only delivery journal, first-visit record, fingerprints (also runs in Node)
 js/pwa.js         service worker registration, install button, update message, file handling
 sw.js             service worker (offline cache); manifest.webmanifest and icons/ for installing

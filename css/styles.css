@@ -955,6 +955,20 @@ button.offline-badge:hover { transform: translateY(-1px); }
 /* "Send all" packs */
 .send-all-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
 .send-all-line [hidden] { display: none !important; }
+.ms-card { margin-top: 14px; padding: 14px 16px; border: 1px solid var(--line-strong); border-radius: 14px; background: rgba(255, 255, 255, 0.7); }
+.ms-card[hidden] { display: none; }
+.ms-line { margin: 0 0 10px; font-size: 0.92rem; line-height: 1.5; }
+.ms-line .ms-logo { vertical-align: -2px; }
+.ms-logo { width: 16px; height: 16px; flex: none; }
+.ms-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.btn-ms { display: inline-flex; align-items: center; gap: 10px; background: #fff; color: #5e5e5e; border: 1px solid #8c8c8c; border-radius: 4px; font-weight: 600; padding: 9px 14px; }
+.btn-ms:hover:not(:disabled) { background: #f3f3f3; }
+.ms-meter { margin: 0 0 10px; }
+.ms-result { margin-top: 10px; font-size: 0.88rem; padding: 8px 12px; border-radius: 10px; background: #eef6ff; }
+.ms-result.ok { background: #e9f8ef; }
+.ms-result.warn { background: #fff6e0; }
+.ms-detail { display: block; margin-top: 4px; font-size: 0.78rem; color: var(--muted); word-break: break-word; }
+.ms-errors { margin: 6px 0 0; padding-left: 18px; }
 .send-pack { width: min(100%, 560px); }
 .sp-facts { margin: 14px 0 10px; padding-left: 20px; display: grid; gap: 4px; font-size: 0.92rem; }
 .sp-facts .check { display: inline-flex; gap: 8px; align-items: center; }

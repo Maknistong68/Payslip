@@ -22,6 +22,11 @@
   var SETTINGS_FILE_VERSION = 3;
   // Fields that change every month; never kept in the company profile.
   var MONTHLY_KEYS = ['payPeriod', 'periodStart', 'periodEnd', 'paymentDate'];
+  // Sign in with Microsoft: on only when this copy has an app registration ID (js/config.js) and runs on a web address.
+  var CONFIG = window.PAYSLIP_CONFIG || {};
+  var Ms = window.PayslipMs || { available: function () { return false; }, account: function () { return null; } };
+  if (window.PayslipMs) Ms.configure({ clientId: CONFIG.microsoftClientId, authority: CONFIG.microsoftAuthority, graph: CONFIG.microsoftGraph });
+  var MS_PACE_MS = Number(CONFIG.msPaceMs) >= 0 && CONFIG.msPaceMs !== undefined ? Number(CONFIG.msPaceMs) : 2200;
   var Art = window.PayslipArt || { say: function () {}, confetti: function () {}, countUp: function (el, v) { el.textContent = v; }, init: function () {} };
 
   // ---------------------------------------------------------------------------
@@ -1440,6 +1445,171 @@
     }
   }
 
+  // --- Sign in with Microsoft: every email straight from this page, through the user's own mailbox ------
+  var MS_LOGO = '<svg class="ms-logo" viewBox="0 0 21 21" aria-hidden="true"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>';
+  var msRun = null;        // the run in progress: { total, done, ok, failed, current, waiting, stop, errors }
+  var msBusy = false;      // one email from the viewer on its way
+  var msUi = { signing: false, result: null };
+
+  function msNote() {
+    var a = Ms.account();
+    return 'sent from ' + (a ? a.username : 'the Microsoft mailbox') + ' (signed in with Microsoft)';
+  }
+  function msMail(slip, to, extra) {
+    var art = artifactFor(slip, lockOn('email'));
+    var m = messageFor(slip, 'email');
+    return Object.assign({ to: to || slip.fields.email, subject: m.subject, text: m.text, fileName: art.fileName, bytes: art.bytes }, extra || {});
+  }
+  function msErrorHtml(err) {
+    var hint = Ms.hint(err);
+    return escapeHtml(hint || (err && err.message) || String(err)) +
+      (/IT approve/.test(hint) ? ' <button type="button" class="link inline" data-ms="consent">Copy the approval link for IT</button>' : '') +
+      (hint && err && err.message && !/cancelled|popup/i.test(err.code || '') ? '<span class="ms-detail">' + escapeHtml(err.message) + '</span>' : '');
+  }
+
+  function renderMsCard() {
+    var card = $('msCard');
+    if (!card) return;
+    card.hidden = !Ms.available();
+    if (card.hidden) return;
+    var a = Ms.account();
+    var todo = exportableSlips().filter(function (sl) { return sl.fields.email && !isSent(sl); });
+    var dis = state.canSend ? '' : ' disabled';
+    var html;
+    if (msRun) {
+      html = '<p class="ms-line">' + (msRun.waiting ? 'Microsoft asks to slow down: continuing in ' + msRun.waiting + ' s…'
+        : 'Sending <b>' + Math.min(msRun.done + 1, msRun.total) + '</b> of ' + msRun.total + (msRun.current ? ' · ' + escapeHtml(msRun.current) : '')) + '</p>' +
+        '<div class="send-meter ms-meter"><i style="width:' + Math.round(msRun.done / msRun.total * 100) + '%"></i></div>' +
+        '<div class="ms-actions"><button type="button" class="btn btn-small" data-ms="stop"' + (msRun.stop ? ' disabled>Stopping…' : '>Stop') + '</button><span class="muted small">Keep this page open. Stopped? Everyone sent stays ticked; continue any time.</span></div>';
+    } else if (msUi.signing) {
+      html = '<p class="ms-line">Finish signing in in the Microsoft window…</p><div class="ms-actions"><button type="button" class="btn btn-small" data-ms="cancel">Cancel</button></div>';
+    } else if (!a) {
+      html = '<p class="ms-line">Email with <b>Microsoft 365</b> or <b>Outlook.com</b>? Sign in once and every payslip goes from your own mailbox, PDF attached. Nothing is saved: the sign-in ends when you close this page.</p>' +
+        '<div class="ms-actions"><button type="button" class="btn btn-ms" data-ms="signin"' + dis + '>' + MS_LOGO + '<span>Sign in with Microsoft</span></button></div>';
+    } else {
+      html = '<p class="ms-line">' + MS_LOGO + ' Signed in as <b>' + escapeHtml(a.name || a.username) + '</b>' + (a.name ? ' <span class="muted">' + escapeHtml(a.username) + '</span>' : '') +
+        ' · <button type="button" class="link inline" data-ms="signout">sign out</button></p>' +
+        '<div class="ms-actions"><button type="button" class="btn btn-primary" data-ms="all"' + (todo.length && state.canSend ? '' : ' disabled') + '>' + (todo.length ? 'Send ' + plural(todo.length, 'email') + ' now' : 'Everyone with an email is sent') + '</button>' +
+        '<button type="button" class="btn btn-small" data-ms="test"' + dis + '>Send a test to me</button></div>';
+    }
+    if (msUi.result && !msRun) html += '<div class="ms-result ' + msUi.result.kind + '">' + msUi.result.html + '</div>';
+    card.querySelector('.ms-body').innerHTML = html;
+  }
+
+  function msSignIn() {
+    var p = Ms.signIn();   // straight from the click, so the window is not blocked
+    msUi = { signing: true, result: null };
+    renderMsCard();
+    p.then(function (a) {
+      msUi = { signing: false, result: { kind: 'ok', html: 'Signed in. Send a test to yourself first, then send everyone.' } };
+      Art.say('happy', 'Signed in as <b>' + escapeHtml(a ? a.username : '') + '</b>. Every email now goes straight from your mailbox.', { settle: 'send', after: 3500 });
+      refreshSendViews();
+    }, function (err) {
+      msUi = { signing: false, result: err && err.code === 'superseded' ? null : { kind: 'warn', html: msErrorHtml(err) } };
+      renderMsCard();
+    });
+  }
+
+  function msSendTest() {
+    var a = Ms.account();
+    var first = exportableSlips().filter(function (sl) { return sl.fields.email; })[0] || exportableSlips()[0];
+    if (!a || !first) return;
+    var m = messageFor(first, 'email');
+    msUi.result = { kind: 'info', html: 'Sending a test to ' + escapeHtml(a.username) + '…' };
+    renderMsCard();
+    Ms.sendMail(msMail(first, a.username, { subject: '[TEST] ' + m.subject, text: 'TEST: this is what ' + first.name + ' <' + (first.fields.email || 'no email') + '> will receive.\n\n' + m.text })).then(function () {
+      msUi.result = { kind: 'ok', html: 'Test sent to <b>' + escapeHtml(a.username) + '</b>. Check your inbox, then send everyone.' };
+      renderMsCard();
+    }, function (err) {
+      msUi.result = { kind: 'warn', html: 'The test was not sent. ' + msErrorHtml(err) };
+      renderMsCard();
+    });
+  }
+
+  function msSendOne(slip, done) {
+    if (msBusy || msRun) return;
+    guarded(slip, function () {
+      msBusy = true;
+      if (viewer) viewer.refresh();
+      Ms.sendMail(msMail(slip)).then(function () {
+        msBusy = false;
+        markSent(slip, 'outlook', msNote());
+        if (done) done('ms');
+      }, function (err) {
+        msBusy = false;
+        if (viewer) viewer.refresh();
+        Guide.toast({ kind: 'warn', html: '<b>Not sent to ' + escapeHtml(slip.name) + '.</b> ' + msErrorHtml(err) });
+        if (!Ms.account()) renderMsCard();
+      });
+    });
+  }
+
+  async function msSendAll() {
+    var a = Ms.account();
+    var list = exportableSlips().filter(function (sl) { return sl.fields.email && !isSent(sl); });
+    if (!a || !list.length || msRun) return;
+    var yes = await Guide.confirm({
+      title: 'Send ' + plural(list.length, 'email') + ' now?',
+      html: '<p>From <b>' + escapeHtml(a.username) + '</b>, each with its own PDF' + (lockOn('email') ? ' (locked)' : '') + '. First: ' + escapeHtml(list[0].name) + ' &lt;' + escapeHtml(list[0].fields.email) + '&gt;.</p>' +
+        '<p class="muted">About one every 2 seconds' + (list.length > 20 ? ' (' + Math.ceil(list.length * (MS_PACE_MS + 800) / 60000) + ' min for everyone)' : '') + '. Keep this page open; you can stop any time and continue later.</p>',
+      ok: 'Send now', mood: 'happy'
+    });
+    if (!yes) return;
+    msRun = { total: list.length, done: 0, ok: 0, failed: 0, current: '', waiting: 0, stop: false, errors: [], stopped: null };
+    msUi.result = null;
+    renderMsCard();
+    for (var i = 0; i < list.length && !msRun.stop; i++) {
+      var sl = list[i];
+      if (!isSent(sl)) {
+        msRun.current = sl.name;
+        renderMsCard();
+        try {
+          await Ms.sendMail(msMail(sl, null, { onWait: function (sec) { msRun.waiting = sec; renderMsCard(); } }));
+          msRun.waiting = 0;
+          markSent(sl, 'outlook', msNote());
+          msRun.ok++;
+        } catch (err) {
+          msRun.waiting = 0;
+          msRun.failed++;
+          msRun.errors.push({ slip: sl, err: err });
+          if (Ms.stopsRun(err)) { msRun.stopped = err; msRun.done++; break; }
+        }
+      }
+      msRun.done++;
+      renderMsCard();
+      if (i < list.length - 1 && !msRun.stop) await new Promise(function (r) { setTimeout(r, MS_PACE_MS); });
+    }
+    var r = msRun;
+    msRun = null;
+    var left = exportableSlips().filter(function (sl) { return sl.fields.email && !isSent(sl); }).length;
+    msUi.result = {
+      kind: r.failed ? 'warn' : 'ok',
+      html: '<b>' + plural(r.ok, 'email') + ' sent</b>' + (r.failed ? ', ' + r.failed + ' not sent' : '') + (r.stop ? ' (stopped)' : '') + '.' +
+        (r.stopped ? ' Stopped because: ' + msErrorHtml(r.stopped) : '') +
+        (r.errors.length && !r.stopped ? '<ul class="ms-errors">' + r.errors.slice(0, 8).map(function (x) { return '<li><b>' + escapeHtml(x.slip.name) + '</b> &lt;' + escapeHtml(x.slip.fields.email) + '&gt;: ' + escapeHtml(Ms.hint(x.err) || x.err.message) + '</li>'; }).join('') + '</ul>' : '') +
+        (left ? ' ' + plural(left, 'person is', 'people are') + ' left: fix and send again, only they get it.' : r.ok ? ' Copies are in your Sent Items.' : '')
+    };
+    renderMsCard();
+  }
+
+  $('msCard').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-ms]');
+    if (!b || b.disabled) return;
+    var act = b.getAttribute('data-ms');
+    if (act === 'signin') msSignIn();
+    else if (act === 'cancel') Ms.cancelSignIn();
+    else if (act === 'signout') { Ms.signOut(); msUi = { signing: false, result: null }; refreshSendViews(); }
+    else if (act === 'test') msSendTest();
+    else if (act === 'all') msSendAll();
+    else if (act === 'stop' && msRun) { msRun.stop = true; renderMsCard(); }
+    else if (act === 'consent') {
+      var link = Ms.adminConsentUrl();
+      var copied = function () { Guide.toast({ kind: 'ok', html: 'Approval link copied. Send it to your IT: one approval lets everyone in your company sign in.' }); };
+      if (navigator.clipboard) navigator.clipboard.writeText(link).then(copied, function () { window.prompt('Approval link for IT:', link); });
+      else window.prompt('Approval link for IT:', link);
+    }
+  });
+
   async function downloadMergePack() {
     var all = exportableSlips();
     var slips = all.filter(function (s) { return s.fields.email; });
@@ -1486,12 +1656,13 @@
   var packOther = packHere === 'windows' ? 'mac' : 'windows';
   (function () {
     var label = { windows: 'Send-all pack for Windows', mac: 'Send-all pack for Mac or Linux' };
+    if (Ms.available()) $('sendAllIntro').textContent = packHere ? 'Other email (Gmail, company mail)? Send all at once with the pack:' : 'Other email (Gmail, company mail)? Send one by one here, or download a pack for a computer:';
     if (packHere) {
       $('btnPack').textContent = label[packHere];
       $('btnPackOther').textContent = 'or for ' + (packOther === 'windows' ? 'a Windows computer' : 'a Mac or Linux computer');
       $('btnPackAlt').hidden = true;
     } else {
-      $('sendAllIntro').textContent = 'Sending every email at once needs a Windows, Mac or Linux computer. Here, send them one by one, or download a pack for the computer:';
+      if (!Ms.available()) $('sendAllIntro').textContent = 'Sending every email at once needs a Windows, Mac or Linux computer. Here, send them one by one, or download a pack for the computer:';
       $('btnPack').textContent = 'Pack for Windows';
       $('btnPackOther').hidden = true;
       $('btnPackAlt').textContent = 'Pack for Mac or Linux';
@@ -1778,6 +1949,7 @@
   // done(kind) runs after the email was opened (not when the user backs out).
   function sendEmail(slip, done) {
     if (!slip.fields.email || !state.canSend) return;
+    if (Ms.account()) { msSendOne(slip, done); return; }
     guarded(slip, function () {
       withEmailApp(function (kind) {
         var art = artifactFor(slip, lockOn('email'));
@@ -1902,9 +2074,12 @@
     ].filter(Boolean).join('<i class="dot-sep"></i>');
     if ($('btnReconnect')) $('btnReconnect').addEventListener('click', reconnectFolder);
     var ok = emailKind();
-    $('outlookLine').innerHTML = 'Email opens in <b>' + (ok ? EMAIL_KINDS[ok].name : 'your email app') + '</b>' + (ok ? '' : ' (asked on the first email)') +
+    var msAcct = Ms.account();
+    if (msAcct) $('outlookLine').innerHTML = 'Emails go straight from <b>' + escapeHtml(msAcct.username) + '</b> (signed in with Microsoft).';
+    else $('outlookLine').innerHTML = 'Email opens in <b>' + (ok ? EMAIL_KINDS[ok].name : 'your email app') + '</b>' + (ok ? '' : ' (asked on the first email)') +
       ' · <button type="button" class="link inline" data-outlook-change>' + (ok ? 'change' : 'choose now') + '</button>' +
       (ok === 'classic' ? ' · <button type="button" class="link inline" data-eml-hint>open emails automatically</button>' : '');
+    renderMsCard();
     var next = nextUnsent();
     var btn = $('btnStartSending');
     btn.innerHTML = ICONS.eye + '<span>' + (!slips.length ? 'Nothing to send' : !next ? 'Everyone is done' : sent ? 'Continue with ' + escapeHtml(next.name) : 'Start: view the first payslip') + '</span>';
@@ -2099,13 +2274,14 @@
         '<button type="button" class="btn btn-wa btn-block" data-v="wa"' + (s.fields.mobile ? dis : ' disabled') + '>' + ICONS.wa + 'Send on WhatsApp</button>' +
         '<span class="vw-sub">' + (s.fields.mobile ? '+' + escapeHtml(s.fields.mobile) + (waLocked ? ' · ' + ICONS.lock + 'locked' : ' · not locked') : 'No mobile number in the file') + '</span>' +
         (canShareFiles && s.fields.mobile ? '<button type="button" class="link vw-share" data-v="share"' + dis + '>' + ICONS.share + 'or share the file to WhatsApp</button>' : '') +
-        '<button type="button" class="btn btn-block" data-v="eml"' + (s.fields.email ? dis : ' disabled') + '>' + ICONS.mail + (emailKind() ? EMAIL_KINDS[emailKind()].button : 'Send by email') + '</button>' +
-        '<span class="vw-sub">' + (s.fields.email ? escapeHtml(s.fields.email) + (emLocked ? ' · ' + ICONS.lock + 'locked' : ' · not locked') + (emailKind() ? ' · ' + EMAIL_KINDS[emailKind()].name + ' <button type="button" class="link inline" data-v="outlook">change</button>' : '') : 'No email address in the file') + '</span>' +
+        '<button type="button" class="btn btn-block" data-v="eml"' + (s.fields.email && !msBusy ? dis : ' disabled') + '>' + ICONS.mail + (Ms.account() ? (msBusy ? 'Sending…' : 'Send email now') : emailKind() ? EMAIL_KINDS[emailKind()].button : 'Send by email') + '</button>' +
+        '<span class="vw-sub">' + (s.fields.email ? escapeHtml(s.fields.email) + (emLocked ? ' · ' + ICONS.lock + 'locked' : ' · not locked') + (Ms.account() ? ' · from ' + escapeHtml(Ms.account().username) : emailKind() ? ' · ' + EMAIL_KINDS[emailKind()].name + ' <button type="button" class="link inline" data-v="outlook">change</button>' : '') : 'No email address in the file') + '</span>' +
         '<button type="button" class="btn btn-ghost btn-block" data-v="pdf">' + ICONS.download + 'Download PDF</button>' +
         '</div>' +
         (justSent === 'wa' ? '<p class="vw-hint">WhatsApp is opening with the message typed. The PDF is in your Downloads: drag it into the chat, then press Send.</p>' : '') +
         (justSent === 'eml-classic' ? '<p class="vw-hint">' + (Vault.prefs().emlHintDone ? 'Outlook opens the email ready, with the PDF attached: press Send.' : 'The email is in your downloads: open it and Outlook shows it ready, with the PDF attached. Press Send.') + '</p>' : '') +
         (/^eml-(new|web|gmail|app)$/.test(justSent) ? '<p class="vw-hint">' + (justSent === 'eml-gmail' ? 'Gmail' : justSent === 'eml-app' ? 'Your email app' : 'Outlook') + ' is opening with the address, subject and message typed. The PDF is in your downloads: drag it into the email, then press Send.</p>' : '') +
+        (justSent === 'eml-ms' ? '<p class="vw-hint">Sent from your mailbox, with the PDF attached. A copy is in your Sent Items.</p>' : '') +
         (justSent === 'eml-share' ? '<p class="vw-hint">The PDF went to the email app with the message. The address is copied: paste it into To, then press Send.</p>' : '') +
         (justSent ? '<button type="button" class="btn btn-primary btn-block" data-v="nextUnsent">Next payslip →</button>' : '');
     }
@@ -2545,7 +2721,7 @@
 
   window.addEventListener('beforeunload', function (e) {
     writeSessionState();
-    if (state.exporting) { e.preventDefault(); e.returnValue = ''; return ''; }
+    if (state.exporting || msRun) { e.preventDefault(); e.returnValue = ''; return ''; }
   });
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'hidden') writeSessionState();
