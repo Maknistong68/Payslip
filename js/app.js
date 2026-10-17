@@ -352,9 +352,9 @@
       kind = 'warn';
       banner = '<strong>' + plural(st.ok, 'payslip') + ' ready.</strong> ' + plural(st.withErrors, 'row has', 'rows have') + ' errors and will be skipped unless fixed in Excel. Tick "Only rows with problems" in the Employees list to see them.';
     } else if (st.withWarnings || warns.length) {
-      banner = '<strong>All ' + plural(st.ok, 'payslip') + ' ready.</strong> There are a few warnings worth a look, but nothing blocking.';
+      banner = '<strong>All ' + plural(st.ok, 'payslip') + ' ready.</strong> A few warnings, nothing blocking.';
     } else {
-      banner = '<strong>All ' + plural(st.ok, 'payslip') + ' ready.</strong> Everything checks out.';
+      banner = '<strong>All ' + plural(st.ok, 'payslip') + ' ready.</strong>';
     }
     setAlert($('statusBanner'), banner, kind);
 
@@ -719,7 +719,7 @@
   }
 
   function protectEnabled() {
-    return $('protectPdfs').checked && String(state.company.passwordRule || 'id+dob').toLowerCase() !== 'none';
+    return $('protectPdfs').checked && String(state.company.passwordRule || 'id').toLowerCase() !== 'none';
   }
 
   function passwordFor(slip) {
@@ -819,12 +819,12 @@
       return '<div><div class="k">' + it[0] + '</div><div class="v">' + escapeHtml(it[1]) + '</div></div>';
     }).join('');
 
-    var rule = String(state.company.passwordRule || 'id+dob');
+    var rule = String(state.company.passwordRule || 'id');
     var cannot = slips.filter(function (s) { return Schema.buildPassword(s, rule).error; }).length;
-    var ruleText = { 'id+dob': 'National ID / Iqama + birth day and month', id: 'National ID / Iqama', dob: 'date of birth (DDMMYYYY)', custom: '"Payslip Password" column', none: 'off' }[rule.toLowerCase()] || rule;
+    var ruleText = { 'id+dob': 'Iqama + birth day/month', id: 'Iqama / National ID number', dob: 'date of birth', custom: '"Payslip Password" column', none: 'off' }[rule.toLowerCase()] || rule;
     $('protectHint').textContent = rule.toLowerCase() === 'none'
-      ? '(Password Rule is "none" in the company settings)'
-      : '(rule: ' + ruleText + (cannot ? '; ' + cannot + ' row' + (cannot === 1 ? '' : 's') + ' lack the data and will be exported without a password' : '') + ')';
+      ? '(off in company settings)'
+      : '· ' + ruleText + (cannot ? ' · ' + cannot + ' row' + (cannot === 1 ? '' : 's') + ' without data stay open' : '');
     $('protectPdfs').disabled = rule.toLowerCase() === 'none';
     if (!fsaSupported) {
       $('btnExportFolder').classList.add('hidden');
@@ -950,7 +950,7 @@
       await nextTick();
       var blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
       downloadBlob(blob, baseName() + '.zip');
-      state.exportedTo = 'the ZIP file ' + baseName() + '.zip (unzip it before sending)';
+      state.exportedTo = 'zip';
       setAlert($('exportMessage'), '<strong>Done.</strong> ' + plural(items.length, 'PDF file') + ' + manifest.csv in a ZIP (' + (blob.size / 1024 / 1024).toFixed(1) + ' MB, ' + ((Date.now() - started) / 1000).toFixed(1) + ' s).' + protectNote(items), 'ok');
     } catch (e) {
       reportError($('exportMessage'), e);
@@ -993,7 +993,7 @@
       }
       await writeToDir(sub, 'manifest.csv', Delivery.manifestCsv(items, state.company));
       state.dirHandle = sub;
-      state.exportedTo = 'the folder "' + baseName() + '" you chose';
+      state.exportedTo = 'folder';
       setAlert($('exportMessage'), '<strong>Done.</strong> ' + plural(items.length, 'PDF file') + ' + manifest.csv written to the folder <code>' + escapeHtml(baseName()) + '</code> (' + ((Date.now() - started) / 1000).toFixed(1) + ' s).' + protectNote(items) + ' <button type="button" class="btn btn-small" data-go="5" style="margin-left:8px">Continue to send →</button>', 'ok');
       $('exportMessage').querySelector('[data-go]').addEventListener('click', function () { goStep(5); });
     } catch (e) {
@@ -1083,7 +1083,7 @@
       '<span class="chip"><strong>' + slips.filter(function (s) { return s.fields.mobile; }).length + '</strong> with mobile</span>',
       '<span class="chip"><strong>' + slips.filter(function (s) { return s.fields.email; }).length + '</strong> with email</span>',
       '<span class="chip"><strong>' + sent + '</strong> marked sent</span>',
-      state.exportedTo ? '<span class="chip">PDFs in ' + escapeHtml(state.exportedTo) + '</span>' : '<span class="chip" style="color:var(--warn)">PDFs not exported yet (Export step)</span>'
+      state.exportedTo ? '<span class="chip ok">PDFs exported</span>' : '<span class="chip warn">PDFs not exported yet</span>'
     ].join('');
   }
 
@@ -1113,31 +1113,54 @@
     renderSendList();
   }
 
+  var ICONS = {
+    chat: '<svg viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.6 8.6 0 0 1-3.7-.8L3 21l1.9-5.1A8.4 8.4 0 0 1 3 11.5a8.4 8.4 0 0 1 9-8.4 8.4 8.4 0 0 1 9 8.4z"/></svg>',
+    clip: '<svg viewBox="0 0 24 24"><path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/></svg>',
+    send: '<svg viewBox="0 0 24 24"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>',
+    download: '<svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>',
+    click: '<svg viewBox="0 0 24 24"><path d="m9 9 5 12 1.8-5.2L21 14z"/><path d="M7.2 2.2 8 5.1"/><path d="m5.1 8-2.9-.8"/><path d="M14 4.1 12 6"/><path d="m6 12-1.9 2"/></svg>',
+    mail: '<svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 7L2 7"/></svg>',
+    printer: '<svg viewBox="0 0 24 24"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>',
+    hand: '<svg viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-4 0v5"/><path d="M14 10V4a2 2 0 0 0-4 0v2"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.9-5.9-2.5L2.7 15.3a2 2 0 0 1 3-2.6L6 14"/></svg>',
+    pen: '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+    share: '<svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4"/><path d="m15.4 6.5-6.8 4"/></svg>',
+    folder: '<svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>'
+  };
+
+  function flowHtml(steps, extra) {
+    return '<div class="flow">' + steps.map(function (st, i) {
+      return '<div class="flow-step"><span class="flow-icon">' + ICONS[st.icon] + '<span class="flow-num">' + (i + 1) + '</span></span><span class="flow-title">' + escapeHtml(st.title) + '</span><span class="flow-sub">' + escapeHtml(st.sub || '') + '</span></div>';
+    }).join('<span class="flow-arrow" aria-hidden="true">›</span>') + '</div>' + (extra || '');
+  }
+
   function renderChannelHelp() {
     var ch = currentChannel();
     var html = '';
+    var where = state.exportedTo ? 'from the export folder' : 'export the PDFs first';
     if (ch.id === 'whatsapp') {
-      html = '<strong>How it works.</strong> Each row opens the employee\'s WhatsApp chat with the message already typed. ' +
-        (canShareFiles
-          ? 'On this browser the <b>Share</b> button also hands the PDF itself to WhatsApp through the system share sheet: pick WhatsApp, pick the contact, send.'
-          : 'Attach the PDF by dragging it from ' + (state.exportedTo ? escapeHtml(state.exportedTo) : 'the exported folder') + ' into the chat (the file name is shown in the row).') +
-        '<ol><li>Open WhatsApp Desktop and keep it logged in.</li><li>Save the employees as contacts first if you can; many new chats to unsaved numbers can get the account temporarily restricted.</li>' +
-        '<li>Work down the list. After each send the row is ticked automatically; untick it if the send failed.</li><li>Pause for a few minutes every 50 messages. If WhatsApp shows a "restricted" notice, stop for the day.</li></ol>' +
-        '<p class="muted small">On macOS use the "+" attach button in WhatsApp, not drag-and-drop (recent versions delete the dragged original).</p>';
+      html = flowHtml([
+        canShareFiles ? { icon: 'share', title: 'Share PDF', sub: 'pick WhatsApp + contact' } : { icon: 'chat', title: 'Open chat', sub: 'message pre-typed' },
+        canShareFiles ? { icon: 'chat', title: 'Or Open chat', sub: 'then drag the PDF' } : { icon: 'clip', title: 'Attach the PDF', sub: where },
+        { icon: 'send', title: 'Send', sub: 'row ticks itself' }
+      ], '<p class="flow-note">Save contacts first · pause every 50 · stop if WhatsApp says "restricted"' + (/Mac/.test(navigator.platform) ? ' · on Mac use the + button, not drag-and-drop' : '') + '</p>');
     } else if (ch.id === 'outlook') {
-      html = '<strong>How it works.</strong> Each row downloads a ready email (<code>.eml</code>) with the PDF attached. Double-click it: classic Outlook for Windows opens it as a draft; press Send. ' +
-        'For everyone at once, download the batch pack: folders of ' + EML_BATCH + ' drafts (select all, press Enter), a guide, and an Outlook macro that saves every message to Drafts in one run.' +
-        '<p class="muted small">Works with classic Outlook (Microsoft 365, 2021, 2019). The new Outlook, Outlook for Mac and web mail open these files read-only; use "Gmail / any mailbox" instead. Microsoft 365 sends about 30 messages per minute.</p>' +
-        '<div class="actions"><button type="button" class="btn btn-primary" id="btnEmlPack">Download Outlook drafts pack</button></div>';
+      html = flowHtml([
+        { icon: 'download', title: 'Draft', sub: 'one .eml per row' },
+        { icon: 'click', title: 'Double-click', sub: 'classic Outlook opens it' },
+        { icon: 'send', title: 'Send', sub: '≈30 per minute' }
+      ], '<div class="flow-actions"><button type="button" class="btn btn-primary" id="btnEmlPack">All drafts pack</button><span class="muted small">batches of ' + EML_BATCH + ' + macro · classic Outlook for Windows only</span></div>');
     } else if (ch.id === 'mailmerge') {
-      html = '<strong>How it works.</strong> Download the Mail Merge pack: all PDFs, a <code>mailmerge.csv</code> with one row per employee, and a one-page guide. ' +
-        'Open it with the free Thunderbird email program and its Mail Merge add-on, signed in to your Gmail, Microsoft 365 or any mailbox. One run sends every payslip to its employee with the right attachment.' +
-        '<p class="muted small">First-time setup takes about 10 minutes; next month only the sending step. Limits: free Gmail 500 messages per day, Google Workspace 2,000, Microsoft 365 about 30 per minute.</p>' +
-        '<div class="actions"><button type="button" class="btn btn-primary" id="btnMergePack">Download Mail Merge pack</button></div>' +
-        '<p class="muted small" style="margin-top:10px">No installation possible? Each row below opens a Gmail compose window with address, subject and text; attach the PDF from the exported folder by hand.</p>';
+      html = flowHtml([
+        { icon: 'download', title: 'Pack', sub: 'PDFs + CSV + guide' },
+        { icon: 'mail', title: 'Thunderbird', sub: 'free, any mailbox' },
+        { icon: 'send', title: 'Send all', sub: 'zero clicks per employee' }
+      ], '<div class="flow-actions"><button type="button" class="btn btn-primary" id="btnMergePack">Mail Merge pack</button><span class="muted small">Gmail 500/day · Workspace 2,000 · M365 ≈30/min · no install? use Gmail compose per row</span></div>');
     } else {
-      html = '<strong>How it works.</strong> Print the combined PDF from the Export step (one page per employee), hand the slips out, and have each employee sign the acknowledgement register. The signed register is your proof of delivery for the wage records.' +
-        '<div class="actions"><button type="button" class="btn btn-primary" id="btnRegister">Download acknowledgement register (PDF)</button></div>';
+      html = flowHtml([
+        { icon: 'printer', title: 'Print', sub: 'combined PDF (Export)' },
+        { icon: 'hand', title: 'Hand out', sub: 'folded, by supervisor' },
+        { icon: 'pen', title: 'Sign', sub: 'register = proof' }
+      ], '<div class="flow-actions"><button type="button" class="btn btn-primary" id="btnRegister">Acknowledgement register</button></div>');
     }
     $('channelHelp').innerHTML = html;
     if ($('btnEmlPack')) $('btnEmlPack').addEventListener('click', downloadEmlPack);

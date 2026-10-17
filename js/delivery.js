@@ -80,8 +80,18 @@
    * editable draft because of X-Unsent: 1 (other clients open it read-only).
    * opts: { from, to, subject, text, fileName, pdfBytes (Uint8Array), messageId }
    */
+  // Plain text -> simple HTML: blank line = new paragraph, single newline = <br>. dir="auto" keeps Arabic right-to-left.
+  function textToHtml(text) {
+    var paras = String(text || '').replace(/\r\n/g, '\n').split(/\n{2,}/);
+    return '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="font-family:Segoe UI,Arial,sans-serif;font-size:14px;line-height:1.5;color:#1f2933">' +
+      paras.map(function (p) {
+        return '<p dir="auto" style="margin:0 0 14px">' + esc(p).replace(/\n/g, '<br>') + '</p>';
+      }).join('') + '</body></html>';
+  }
+
   function buildEml(opts) {
     var boundary = '----=_Payslip_' + randomToken();
+    var altBoundary = '----=_PayslipAlt_' + randomToken();
     var messageId = opts.messageId || ('<payslip-' + Schema.asciiSlug(opts.fileName || 'slip').toLowerCase() + '-' + randomToken() + '@payslip.local>');
     var fileName = opts.fileName || 'payslip.pdf';
     var lines = [
@@ -98,10 +108,21 @@
     lines.push('This is a multi-part message in MIME format.');
     lines.push('');
     lines.push('--' + boundary);
-    lines.push('Content-Type: text/plain; charset="UTF-8"');
+    lines.push('Content-Type: multipart/alternative; boundary="' + altBoundary + '"');
+    lines.push('');
+    lines.push('--' + altBoundary);
+    lines.push('Content-Type: text/plain; charset="UTF-8"; format=flowed');
     lines.push('Content-Transfer-Encoding: base64');
     lines.push('');
     lines.push(base64Lines(utf8Bytes(String(opts.text || '').replace(/\r?\n/g, CRLF))));
+    lines.push('');
+    lines.push('--' + altBoundary);
+    lines.push('Content-Type: text/html; charset="UTF-8"');
+    lines.push('Content-Transfer-Encoding: base64');
+    lines.push('');
+    lines.push(base64Lines(utf8Bytes(textToHtml(opts.text))));
+    lines.push('');
+    lines.push('--' + altBoundary + '--');
     lines.push('');
     lines.push('--' + boundary);
     lines.push('Content-Type: application/pdf; name="' + fileName + '"');
@@ -294,6 +315,7 @@
 
   return {
     buildEml: buildEml,
+    textToHtml: textToHtml,
     encodeHeader: encodeHeader,
     base64Lines: base64Lines,
     waLink: waLink,

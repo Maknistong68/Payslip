@@ -35,8 +35,8 @@
     { key: 'countryCode', label: 'Default Country Code', example: '966', default: '966', note: 'Optional. Added to mobile numbers written without a country code (966 = Saudi Arabia).', aliases: ['country code', 'phone country code', 'dial code'] },
     { key: 'senderEmail', label: 'Sender Email', example: 'payroll@example.com', note: 'Optional. The From address used in Outlook drafts and mail-merge files.', aliases: ['from email', 'from', 'sender', 'payroll email'] },
     { key: 'messageSubject', label: 'Message Subject', example: 'Payslip {period} - {company}', default: 'Payslip {period} - {company}', note: 'Optional. Subject line for emails and first line of WhatsApp messages. Placeholders: {name} {period} {company} {net} {password_hint}', aliases: ['subject', 'email subject'] },
-    { key: 'messageText', label: 'Message Text', multiline: true, example: '', default: 'Dear {name}, your payslip for {period} is attached. {password_hint}\nThis document contains personal data; please do not forward it.\n\nعزيزي {name}، مرفق قسيمة راتبك لشهر {period}. {password_hint_ar}\nهذا المستند يحتوي على بيانات شخصية، يرجى عدم مشاركته.', note: 'Optional. Body of the email / WhatsApp message. Placeholders: {name} {period} {company} {net} {password_hint} {password_hint_ar}', aliases: ['message', 'email body', 'body', 'message body'] },
-    { key: 'passwordRule', label: 'Password Rule', example: 'id+dob', default: 'id+dob', note: 'Optional. How each PDF password is built: none, id (National ID / Iqama), id+dob (ID + birth day and month DDMM), dob (DDMMYYYY), custom (uses the "Payslip Password" column).', aliases: ['pdf password', 'password', 'password scheme'] },
+    { key: 'messageText', label: 'Message Text', multiline: true, example: '', default: 'Dear {name},\n\nPlease find attached your payslip for {period}.\n\n{password_hint}\n\n{company}', note: 'Optional. Body of the email / WhatsApp message. Placeholders: {name} {period} {company} {net} {password_hint} {password_hint_ar}', aliases: ['message', 'email body', 'body', 'message body'] },
+    { key: 'passwordRule', label: 'Password Rule', example: 'id', default: 'id', note: 'Optional. PDF password: id (National ID / Iqama number, default), id+dob (ID + birth day and month DDMM), dob (DDMMYYYY), custom (uses the "Payslip Password" column), none.', aliases: ['pdf password', 'password', 'password scheme'] },
     { key: 'logo', label: 'Logo', type: 'image', example: '', note: 'Optional. Insert your logo picture anywhere on this sheet (Insert > Pictures). The first picture on this sheet is used as the logo.', aliases: ['company logo'] },
     { key: 'stamp', label: 'Stamp / Signature', type: 'image', example: '', note: 'Optional. The second picture on this sheet is used as the stamp or signature.', aliases: ['stamp', 'signature'] }
   ];
@@ -318,7 +318,7 @@
 
   // Builds the PDF password for a slip according to the rule. Returns { password, hint, hintAr, error }.
   function buildPassword(slip, rule) {
-    rule = String(rule || 'id+dob').toLowerCase().replace(/\s+/g, '');
+    rule = String(rule || 'id').toLowerCase().replace(/\s+/g, '');
     var id = String(slip.fields.nationalId || '').replace(/\s+/g, '') || String(slip.employeeId || '');
     var dob = toDate(slip.fields.dobDate || slip.fields.dob);
     var ddmm = dob ? pad2(dob.getDate()) + pad2(dob.getMonth() + 1) : '';
@@ -326,18 +326,18 @@
     if (rule === 'none' || rule === 'no' || rule === 'off') return { password: '', hint: '', hintAr: '', error: null };
     if (rule === 'custom') {
       var pw = String(slip.fields.payslipPassword || '').trim();
-      return pw ? { password: pw, hint: 'Password: the one given to you by HR.', hintAr: 'كلمة المرور: التي زودتك بها الموارد البشرية.', error: null } : { password: '', hint: '', hintAr: '', error: 'no value in the "Payslip Password" column' };
+      return pw ? { password: pw, hint: 'PDF password: given to you by HR.', hintAr: 'كلمة مرور الملف: من الموارد البشرية.', error: null } : { password: '', hint: '', hintAr: '', error: 'no value in the "Payslip Password" column' };
     }
     if (rule === 'dob') {
-      return ddmmyyyy ? { password: ddmmyyyy, hint: 'Password: your date of birth as DDMMYYYY.', hintAr: 'كلمة المرور: تاريخ ميلادك بصيغة يوم شهر سنة (DDMMYYYY).', error: null } : { password: '', hint: '', hintAr: '', error: 'no date of birth' };
+      return ddmmyyyy ? { password: ddmmyyyy, hint: 'PDF password: your date of birth (DDMMYYYY).', hintAr: 'كلمة مرور الملف: تاريخ ميلادك (يوم شهر سنة).', error: null } : { password: '', hint: '', hintAr: '', error: 'no date of birth' };
     }
     if (rule === 'id') {
-      return id ? { password: id, hint: 'Password: your National ID / Iqama number.', hintAr: 'كلمة المرور: رقم الهوية / الإقامة.', error: null } : { password: '', hint: '', hintAr: '', error: 'no National ID / Iqama' };
+      return id ? { password: id, hint: 'PDF password: your Iqama / National ID number.', hintAr: 'كلمة مرور الملف: رقم الإقامة / الهوية.', error: null } : { password: '', hint: '', hintAr: '', error: 'no National ID / Iqama' };
     }
     // default id+dob
     if (!id) return { password: '', hint: '', hintAr: '', error: 'no National ID / Iqama' };
     if (!ddmm) return { password: '', hint: '', hintAr: '', error: 'no date of birth' };
-    return { password: id + ddmm, hint: 'Password: your National ID / Iqama number followed by your birth day and month (DDMM), e.g. 24567890121503.', hintAr: 'كلمة المرور: رقم الهوية / الإقامة متبوعاً بيوم وشهر الميلاد (DDMM).', error: null };
+    return { password: id + ddmm, hint: 'PDF password: your Iqama / National ID number + birth day and month (DDMM).', hintAr: 'كلمة مرور الملف: رقم الإقامة / الهوية + يوم وشهر الميلاد.', error: null };
   }
 
   // {name} {period} {company} {net} {currency} {password_hint} {password_hint_ar} {employee_id}

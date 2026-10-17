@@ -27,7 +27,7 @@ The page is a five-step wizard:
    filled with your company details and logo.
 4. **Export** – a folder of PDFs (Chrome/Edge, written straight to a folder you pick) or a ZIP, one file per
    employee named `EMP-001_2026-10_Name.pdf` plus a `manifest.csv`; each file is password protected using
-   the *Password Rule* (default: National ID / Iqama + birth day and month). A combined PDF for printing or
+   the *Password Rule* (default: the Iqama / National ID number). A combined PDF for printing or
    the archive is also available.
 5. **Send** – hand each payslip to its employee with the tools you already have. Nothing is sent by the page:
    - **WhatsApp**: one button per employee opens the chat with the message typed; on an HTTPS page in
@@ -59,7 +59,7 @@ The template gives the best result, but any salary sheet is accepted:
 - Delivery columns (optional): **Mobile** (any format; `05…` becomes `9665…`), **Email**, **Date of Birth**
   (used for the PDF password). Delivery settings on the `Settings` sheet: Sender Email, Message Subject,
   Message Text (with `{name}` `{period}` `{company}` `{net}` `{password_hint}` placeholders), Password Rule
-  (`id+dob`, `id`, `dob`, `custom`, `none`) and Default Country Code.
+  (`id` default, `id+dob`, `dob`, `custom`, `none`) and Default Country Code.
 - Names and text can be in English or Arabic. Arabic is printed with the bundled Amiri font (SIL Open Font License);
   other scripts (Cyrillic, Chinese…) are flagged in the checks and print as `?`.
 
@@ -99,8 +99,8 @@ No build step; edit the files and reload the page.
 - The `.eml` drafts open as editable drafts only in classic Outlook for Windows (build 2109 or newer).
   New Outlook, Outlook for Mac, Apple Mail and web mail open them read-only.
 - PDF passwords use the 40-bit RC4 standard security handler built into jsPDF: it stops casual opening and
-  works in every viewer, but it is not strong encryption. A 10-digit Iqama alone can be brute-forced, which is
-  why the default rule adds the birth day and month. AES-256 is a planned upgrade.
+  works in every viewer, but it is not strong encryption. The default password is the Iqama number for
+  simplicity; switch the Password Rule to `id+dob` for a harder one. AES-256 is a planned upgrade.
 - The folder export and the Share PDF button are Chrome/Edge (and Safari for share) features; Firefox users
   get the ZIP and the "Open chat" button.
 - Arabic is supported for values (names, titles, company name, custom pay lines, remarks, footer); the fixed
