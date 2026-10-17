@@ -32,6 +32,11 @@
     { key: 'paymentDate', label: 'Payment Date', example: '2026-11-05', type: 'date', note: 'Optional. Date salaries were transferred.', aliases: ['pay date', 'date of payment', 'transfer date'] },
     { key: 'preparedBy', label: 'Prepared By', example: 'HR Department', note: 'Optional. Printed in the footer.', aliases: ['prepared', 'issued by'] },
     { key: 'footerNote', label: 'Footer Note', example: 'This is a system-generated payslip and does not require a signature.', note: 'Optional. Free text printed at the bottom of each payslip.', aliases: ['note', 'footer', 'disclaimer'] },
+    { key: 'countryCode', label: 'Default Country Code', example: '966', default: '966', note: 'Optional. Added to mobile numbers written without a country code (966 = Saudi Arabia).', aliases: ['country code', 'phone country code', 'dial code'] },
+    { key: 'senderEmail', label: 'Sender Email', example: 'payroll@example.com', note: 'Optional. The From address used in Outlook drafts and mail-merge files.', aliases: ['from email', 'from', 'sender', 'payroll email'] },
+    { key: 'messageSubject', label: 'Message Subject', example: 'Payslip {period} - {company}', default: 'Payslip {period} - {company}', note: 'Optional. Subject line for emails and first line of WhatsApp messages. Placeholders: {name} {period} {company} {net} {password_hint}', aliases: ['subject', 'email subject'] },
+    { key: 'messageText', label: 'Message Text', multiline: true, example: '', default: 'Dear {name}, your payslip for {period} is attached. {password_hint}\nThis document contains personal data; please do not forward it.\n\nعزيزي {name}، مرفق قسيمة راتبك لشهر {period}. {password_hint_ar}\nهذا المستند يحتوي على بيانات شخصية، يرجى عدم مشاركته.', note: 'Optional. Body of the email / WhatsApp message. Placeholders: {name} {period} {company} {net} {password_hint} {password_hint_ar}', aliases: ['message', 'email body', 'body', 'message body'] },
+    { key: 'passwordRule', label: 'Password Rule', example: 'id+dob', default: 'id+dob', note: 'Optional. How each PDF password is built: none, id (National ID / Iqama), id+dob (ID + birth day and month DDMM), dob (DDMMYYYY), custom (uses the "Payslip Password" column).', aliases: ['pdf password', 'password', 'password scheme'] },
     { key: 'logo', label: 'Logo', type: 'image', example: '', note: 'Optional. Insert your logo picture anywhere on this sheet (Insert > Pictures). The first picture on this sheet is used as the logo.', aliases: ['company logo'] },
     { key: 'stamp', label: 'Stamp / Signature', type: 'image', example: '', note: 'Optional. The second picture on this sheet is used as the stamp or signature.', aliases: ['stamp', 'signature'] }
   ];
@@ -41,9 +46,12 @@
     { key: 'name', label: 'Employee Name', group: 'info', required: true, example: 'Ahmed Ali Hassan', aliases: ['name', 'full name', 'employee', 'staff name', 'worker name', 'name of employee'] },
     { key: 'nationalId', label: 'National ID / Iqama', group: 'info', example: '2456789012', aliases: ['iqama', 'iqama no', 'iqama number', 'national id', 'id number', 'national id iqama', 'iqama id', 'id no', 'identity number', 'resident id', 'nid'] },
     { key: 'nationality', label: 'Nationality', group: 'info', example: 'Egyptian', aliases: ['nation', 'country'] },
+    { key: 'dob', label: 'Date of Birth', group: 'info', type: 'date', example: '1990-03-15', aliases: ['dob', 'birth date', 'birthdate', 'date of birth', 'birthday', 'تاريخ الميلاد'] },
     { key: 'jobTitle', label: 'Job Title', group: 'info', example: 'Site Engineer', aliases: ['title', 'position', 'designation', 'job', 'profession', 'occupation', 'role'] },
     { key: 'department', label: 'Department', group: 'info', example: 'Projects', aliases: ['dept', 'section', 'project', 'division', 'site', 'location'] },
     { key: 'joiningDate', label: 'Joining Date', group: 'info', type: 'date', example: '2024-03-15', aliases: ['date of joining', 'doj', 'hire date', 'start date', 'join date', 'date joined', 'hiring date'] },
+    { key: 'mobile', label: 'Mobile', group: 'contact', type: 'phone', example: '0551234567', aliases: ['mobile no', 'mobile number', 'phone', 'phone no', 'phone number', 'contact', 'contact no', 'contact number', 'whatsapp', 'whatsapp no', 'whatsapp number', 'cell', 'cell phone', 'tel', 'telephone', 'gsm', 'جوال', 'رقم الجوال', 'هاتف', 'واتساب'] },
+    { key: 'email', label: 'Email', group: 'contact', type: 'email', example: 'ahmed@example.com', aliases: ['e-mail', 'mail', 'email address', 'e mail', 'البريد', 'البريد الإلكتروني', 'ايميل'] },
     { key: 'bankName', label: 'Bank Name', group: 'info', example: 'Al Rajhi Bank', aliases: ['bank'] },
     { key: 'iban', label: 'IBAN', group: 'info', example: 'SA0380000000608010167519', aliases: ['iban no', 'iban number', 'account', 'account number', 'bank account', 'account no', 'acc no'] },
     { key: 'workingDays', label: 'Working Days', group: 'attendance', type: 'number', example: 30, aliases: ['days worked', 'work days', 'paid days', 'days', 'present days', 'no of days', 'number of days'] },
@@ -62,7 +70,8 @@
     { key: 'netSalary', label: 'Net Salary', group: 'check', type: 'money', example: '', aliases: ['net', 'net pay', 'net amount', 'total net', 'net paid', 'take home', 'net payable', 'total payable', 'amount payable', 'payable'] },
     { key: 'grossSalary', label: 'Gross Salary', group: 'check', type: 'money', example: '', inTemplate: false, aliases: ['gross', 'gross pay', 'total earnings', 'total earning', 'total salary', 'gross amount', 'total allowances', 'total'] },
     { key: 'totalDeductions', label: 'Total Deductions', group: 'check', type: 'money', example: '', inTemplate: false, aliases: ['total deduction', 'total ded', 'deductions total', 'sum of deductions'] },
-    { key: 'remarks', label: 'Remarks', group: 'info', example: '', aliases: ['notes', 'comment', 'comments', 'remark', 'description'] }
+    { key: 'remarks', label: 'Remarks', group: 'info', example: '', aliases: ['notes', 'comment', 'comments', 'remark', 'description'] },
+    { key: 'payslipPassword', label: 'Payslip Password', group: 'contact', inTemplate: false, example: '', aliases: ['pdf password', 'password', 'passcode'] }
   ];
 
   // Column headers like "Earning: Site Allowance" / "Deduction: Housing Loan" are
@@ -79,6 +88,9 @@
     [/nationality|citizen/, 'nationality'],
     [/title|position|designation|profession|occupation|\bjob\b|\brole\b|trade/, 'jobTitle'],
     [/depart|dept|section|division|\bunit\b|cost\s*cent|\bproject\b|\bsite\b/, 'department'],
+    [/\bdob\b|birth/, 'dob'],
+    [/e\s*-?\s*mail|\bmail\b|بريد|ايميل|إيميل/, 'email'],
+    [/mobile|phone|whats\s*app|\bcell\b|\btel\b|\bgsm\b|contact\s*(no|num|number)?$|جوال|هاتف|واتس/, 'mobile'],
     [/joining|hire|hiring|\bdoj\b|date\s*of\s*join|join\s*date|start\s*date|contract\s*start/, 'joiningDate'],
     [/\biban\b|account\s*(no|num|number)?|\bacc\b|\ba\s*c\b/, 'iban'],
     [/\bbank\b/, 'bankName'],
@@ -216,6 +228,138 @@
     return s;
   }
 
+  // Returns a Date for Date objects, Excel serials and common string formats, else null.
+  function toDate(v) {
+    if (isBlank(v)) return null;
+    if (v instanceof Date) return isNaN(v.getTime()) ? null : v;
+    if (typeof v === 'number') return v > 20000 && v < 80000 ? excelSerialToDate(v) : null;
+    var s = String(v).trim();
+    var m = s.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/);
+    if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+    m = s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/);
+    if (m) return new Date(+m[3], +m[2] - 1, +m[1]);
+    m = s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{2})$/);
+    if (m) return new Date(2000 + +m[3] > new Date().getFullYear() ? 1900 + +m[3] : 2000 + +m[3], +m[2] - 1, +m[1]);
+    var d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  function isoDate(d) {
+    return d ? d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) : '';
+  }
+
+  // Mobile numbers -> international digits without "+" (what wa.me expects), e.g. 9665XXXXXXXX.
+  function normalizePhone(v, countryCode) {
+    if (isBlank(v)) return { value: '', error: null };
+    var raw = typeof v === 'number' ? String(Math.round(v)) : String(v).trim();
+    // Excel may turn 0551234567 into 551234567 (number) or 5.51234567E8
+    if (/\d[eE][+-]?\d/.test(raw)) raw = String(Number(raw));
+    var hasPlus = /^\s*\+/.test(raw);
+    var digits = raw.replace(/\D/g, '');
+    if (!digits) return { value: '', error: 'is not a phone number ("' + raw + '")' };
+    var cc = String(countryCode || '966').replace(/\D/g, '') || '966';
+    var out;
+    if (hasPlus) out = digits;
+    else if (digits.indexOf('00') === 0) out = digits.slice(2);
+    else if (digits.indexOf(cc) === 0 && digits.length >= cc.length + 8) out = digits;
+    else if (digits.charAt(0) === '0') out = cc + digits.slice(1);
+    else if (digits.length >= 8 && digits.length <= 10) out = cc + digits;
+    else out = digits;
+    if (out.length < 9 || out.length > 15) return { value: out, error: 'does not look like a valid mobile number ("' + raw + '")' };
+    if (out.indexOf('966') === 0 && !(out.length === 12 && out.charAt(3) === '5')) {
+      return { value: out, error: 'does not look like a valid Saudi mobile number ("' + raw + '", expected 05XXXXXXXX)' };
+    }
+    return { value: out, error: null };
+  }
+
+  function normalizeEmail(v) {
+    if (isBlank(v)) return { value: '', error: null };
+    var s = String(v).trim().toLowerCase().replace(/^mailto:/, '');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(s)) return { value: s, error: 'is not a valid email address ("' + String(v).trim() + '")' };
+    return { value: s, error: null };
+  }
+
+  // "October 2026" / "Oct-2026" / "10/2026" / "2026-10" -> "2026-10"; otherwise a slug of the text.
+  var MONTH_INDEX = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12 };
+  function periodSlug(payPeriod, periodStart) {
+    var s = String(payPeriod || '').trim();
+    var m = s.match(/([A-Za-z]{3,9})\.?\s*[-\/,]?\s*(\d{4})/) || s.match(/(\d{4})\s*[-\/,]?\s*([A-Za-z]{3,9})/);
+    if (m) {
+      var name = (isNaN(+m[1]) ? m[1] : m[2]).slice(0, 4).toLowerCase().replace(/\.$/, '');
+      var year = isNaN(+m[1]) ? m[2] : m[1];
+      var mi = MONTH_INDEX[name] || MONTH_INDEX[name.slice(0, 3)];
+      if (mi) return year + '-' + pad2(mi);
+    }
+    m = s.match(/^(\d{1,2})[-\/](\d{4})$/);
+    if (m) return m[2] + '-' + pad2(+m[1]);
+    m = s.match(/^(\d{4})[-\/](\d{1,2})$/);
+    if (m) return m[1] + '-' + pad2(+m[2]);
+    var d = toDate(periodStart);
+    if (d) return d.getFullYear() + '-' + pad2(d.getMonth() + 1);
+    return asciiSlug(s) || 'period';
+  }
+
+  function asciiSlug(s) {
+    return String(s || '')
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^A-Za-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 40);
+  }
+
+  // EMP-001_2026-10_Ahmed-Hassan.pdf : ASCII only, sorts by employee id, matches the send list.
+  function slipFileName(slip, settings, ext) {
+    var parts = [asciiSlug(slip.employeeId) || 'row' + slip.rowNumber, periodSlug(settings.payPeriod, settings.periodStart)];
+    var nm = asciiSlug(slip.name);
+    if (nm) parts.push(nm);
+    return parts.join('_') + (ext || '.pdf');
+  }
+
+  // Builds the PDF password for a slip according to the rule. Returns { password, hint, hintAr, error }.
+  function buildPassword(slip, rule) {
+    rule = String(rule || 'id+dob').toLowerCase().replace(/\s+/g, '');
+    var id = String(slip.fields.nationalId || '').replace(/\s+/g, '') || String(slip.employeeId || '');
+    var dob = toDate(slip.fields.dobDate || slip.fields.dob);
+    var ddmm = dob ? pad2(dob.getDate()) + pad2(dob.getMonth() + 1) : '';
+    var ddmmyyyy = dob ? ddmm + dob.getFullYear() : '';
+    if (rule === 'none' || rule === 'no' || rule === 'off') return { password: '', hint: '', hintAr: '', error: null };
+    if (rule === 'custom') {
+      var pw = String(slip.fields.payslipPassword || '').trim();
+      return pw ? { password: pw, hint: 'Password: the one given to you by HR.', hintAr: 'كلمة المرور: التي زودتك بها الموارد البشرية.', error: null } : { password: '', hint: '', hintAr: '', error: 'no value in the "Payslip Password" column' };
+    }
+    if (rule === 'dob') {
+      return ddmmyyyy ? { password: ddmmyyyy, hint: 'Password: your date of birth as DDMMYYYY.', hintAr: 'كلمة المرور: تاريخ ميلادك بصيغة يوم شهر سنة (DDMMYYYY).', error: null } : { password: '', hint: '', hintAr: '', error: 'no date of birth' };
+    }
+    if (rule === 'id') {
+      return id ? { password: id, hint: 'Password: your National ID / Iqama number.', hintAr: 'كلمة المرور: رقم الهوية / الإقامة.', error: null } : { password: '', hint: '', hintAr: '', error: 'no National ID / Iqama' };
+    }
+    // default id+dob
+    if (!id) return { password: '', hint: '', hintAr: '', error: 'no National ID / Iqama' };
+    if (!ddmm) return { password: '', hint: '', hintAr: '', error: 'no date of birth' };
+    return { password: id + ddmm, hint: 'Password: your National ID / Iqama number followed by your birth day and month (DDMM), e.g. 24567890121503.', hintAr: 'كلمة المرور: رقم الهوية / الإقامة متبوعاً بيوم وشهر الميلاد (DDMM).', error: null };
+  }
+
+  // {name} {period} {company} {net} {currency} {password_hint} {password_hint_ar} {employee_id}
+  function renderTemplate(tpl, vars) {
+    return String(tpl == null ? '' : tpl).replace(/\{(\w+)\}/g, function (m, k) {
+      return vars[k] != null ? String(vars[k]) : '';
+    });
+  }
+
+  function messageVars(slip, settings, pw) {
+    return {
+      name: slip.name,
+      employee_id: slip.employeeId,
+      period: settings.payPeriod || '',
+      company: settings.companyName || '',
+      net: formatMoney(slip.net),
+      currency: settings.currency || 'SAR',
+      password_hint: pw && pw.hint ? pw.hint : '',
+      password_hint_ar: pw && pw.hintAr ? pw.hintAr : ''
+    };
+  }
+
   function round2(n) {
     return Math.round((n + Number.EPSILON) * 100) / 100;
   }
@@ -335,7 +479,7 @@
       var value;
       if (f.type === 'image') value = '(optional: insert the picture anywhere on this sheet)';
       else if (preset && preset[f.key] != null && preset[f.key] !== '') value = preset[f.key];
-      else if (withSample) value = f.example;
+      else if (withSample && f.example) value = f.example;
       else value = f.default != null ? f.default : '';
       settingsAoa.push([f.label, value, f.note + (f.example ? ' Example: ' + f.example : '')]);
     });
@@ -599,6 +743,18 @@
           source = 'guess';
         }
         if (!target) target = { kind: 'ignored' };
+        // Contact columns: check the values look like phones / emails even on an exact header match
+        // ("Mobile" full of small numbers is a mobile allowance, not phone numbers).
+        if (target.kind === 'column' && COLUMN_BY_KEY[target.key] && COLUMN_BY_KEY[target.key].type === 'phone' && samples.length >= 2 &&
+            samples.filter(function (v) { return !normalizePhone(v).error; }).length / samples.length < 0.5) {
+          target = groupHints[idx] ? { kind: groupHints[idx], label: text } : (numericRatio > 0.8 ? { kind: 'earning', label: text } : { kind: 'ignored' });
+          source = target.kind === 'ignored' ? 'none' : 'guess';
+        }
+        if (target.kind === 'column' && COLUMN_BY_KEY[target.key] && COLUMN_BY_KEY[target.key].type === 'email' && samples.length >= 2 &&
+            samples.filter(function (v) { return String(v).indexOf('@') >= 0; }).length / samples.length < 0.5) {
+          target = { kind: 'ignored' };
+          source = 'none';
+        }
         // Sanity-check keyword guesses against the actual values in the column.
         if (source === 'guess' && target.kind === 'column') {
           var def0 = COLUMN_BY_KEY[target.key];
@@ -659,8 +815,9 @@
     return 'Ignored';
   }
 
-  function parseRow(rawRow, mapping, rowNumber) {
+  function parseRow(rawRow, mapping, rowNumber, countryCode) {
     var slip = {
+      _countryCode: countryCode,
       rowNumber: rowNumber,
       issues: [],
       earnings: [],
@@ -697,6 +854,15 @@
           }
         } else if (def.type === 'date') {
           slip.fields[def.key] = parseDateLike(raw);
+          if (def.key === 'dob') slip.fields.dobDate = isoDate(toDate(raw));
+        } else if (def.type === 'phone') {
+          var ph = normalizePhone(raw, slip._countryCode);
+          slip.fields[def.key] = ph.value;
+          if (ph.error) slip.issues.push({ level: 'warning', message: '"' + m.header + '" ' + ph.error + '. WhatsApp delivery will not work for this row.' });
+        } else if (def.type === 'email') {
+          var em = normalizeEmail(raw);
+          slip.fields[def.key] = em.value;
+          if (em.error) slip.issues.push({ level: 'warning', message: '"' + m.header + '" ' + em.error + '. Email delivery will not work for this row.' });
         } else {
           slip.fields[def.key] = cleanText(raw);
         }
@@ -829,7 +995,7 @@
         var raw = aoa[r] || [];
         if (raw.every(isBlank)) continue;
         if (isTotalsRow(raw, mapping)) { skipped.totals++; continue; }
-        var slip = parseRow(raw, mapping, r + 1);
+        var slip = parseRow(raw, mapping, r + 1, settings.countryCode);
         if (slip.isExample) { skipped.example++; continue; }
         if ((isBlank(slip.name) && isBlank(slip.employeeId)) || (isBlank(slip.name) && slip.gross === 0 && slip.totalDeductions === 0)) {
           // amounts without any employee, or a label without any amounts: a totals/notes row
@@ -864,6 +1030,24 @@
           });
         }
       });
+      // Duplicate contacts
+      ['mobile', 'email'].forEach(function (k) {
+        var seenC = {};
+        slips.forEach(function (sl) {
+          var v = sl.fields[k];
+          if (!v) return;
+          (seenC[v] = seenC[v] || []).push(sl);
+        });
+        Object.keys(seenC).forEach(function (v) {
+          if (seenC[v].length > 1) {
+            var rowsTxt = seenC[v].map(function (sl) { return sl.rowNumber; }).join(', ');
+            seenC[v].forEach(function (sl) {
+              sl.issues.push({ level: 'warning', message: (k === 'mobile' ? 'Mobile' : 'Email') + ' "' + v + '" is shared with other rows (' + rowsTxt + '). Each employee would receive the others\' payslips.' });
+            });
+          }
+        });
+      });
+      slips.forEach(function (sl) { delete sl._countryCode; });
       if (!slips.length) {
         issues.push({ level: 'error', where: 'Payslips', code: 'no-rows', message: 'No employee rows were found under the header row.' });
       }
@@ -877,8 +1061,11 @@
       fileWarnings: issues.filter(function (i) { return i.level === 'warning'; }).length,
       totalNet: round2(slips.reduce(function (a, s) { return a + (s.hasErrors ? 0 : s.net); }, 0)),
       totalGross: round2(slips.reduce(function (a, s) { return a + (s.hasErrors ? 0 : s.gross); }, 0)),
-      skipped: skipped
+      skipped: skipped,
+      withMobile: slips.filter(function (s) { return !!s.fields.mobile; }).length,
+      withEmail: slips.filter(function (s) { return !!s.fields.email; }).length
     };
+    stats.withNoContact = slips.filter(function (s) { return !s.fields.mobile && !s.fields.email; }).length;
     stats.ok = stats.total - stats.withErrors;
 
     return {
@@ -897,7 +1084,7 @@
   // Choices offered by the column-mapping UI.
   function mappingChoices() {
     var list = [{ value: 'ignored', label: 'Ignore this column' }];
-    var groups = { info: 'Employee details', attendance: 'Attendance', earning: 'Earnings', deduction: 'Deductions', check: 'Cross-check only' };
+    var groups = { info: 'Employee details', contact: 'Contact / delivery', attendance: 'Attendance', earning: 'Earnings', deduction: 'Deductions', check: 'Cross-check only' };
     Object.keys(groups).forEach(function (g) {
       COLUMNS.filter(function (c) { return c.group === g; }).forEach(function (c) {
         list.push({ value: 'column:' + c.key, label: c.label, group: groups[g] });
@@ -949,9 +1136,12 @@
         first[i % first.length] + ' ' + last[(i * 3) % last.length],
         String(2000000000 + i * 12345),
         nationality,
+        new Date(1975 + (i % 25), (i * 5) % 12, 1 + ((i * 3) % 28)),
         titles[i % titles.length],
         depts[i % depts.length],
         new Date(2022 + (i % 4), i % 12, 1 + (i % 27)),
+        '05' + String(50000000 + i * 7919).slice(-8),
+        (first[i % first.length] + '.' + last[(i * 3) % last.length].replace(/[^A-Za-z]/g, '') + (i + 1) + '@example.com').toLowerCase(),
         banks[i % banks.length],
         'SA' + String((1000000000 + i * 987654) % 10000000000).padStart(10, '0') + String((200000000000 + i * 12345) % 1000000000000).padStart(12, '0'),
         30 - absentDays,
@@ -996,6 +1186,16 @@
     normalizeHeader: normalizeHeader,
     hasNonLatin: hasNonLatin,
     round2: round2,
-    emptySettings: emptySettings
+    emptySettings: emptySettings,
+    toDate: toDate,
+    isoDate: isoDate,
+    normalizePhone: normalizePhone,
+    normalizeEmail: normalizeEmail,
+    periodSlug: periodSlug,
+    asciiSlug: asciiSlug,
+    slipFileName: slipFileName,
+    buildPassword: buildPassword,
+    renderTemplate: renderTemplate,
+    messageVars: messageVars
   };
 });

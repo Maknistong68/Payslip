@@ -1,5 +1,10 @@
 # Delivery plan: from "export" to "send", one click per employee
 
+> Status: phases 1–4 are built (contact columns, password PDFs, folder/ZIP export with manifest,
+> Send step with WhatsApp / Outlook drafts / Mail Merge pack / register, delivery log). Phase 5
+> (viewer compatibility matrix for encrypted PDFs on phones, share sheet on the hosted URL) is still
+> to be done by hand on real devices. Section 4 items remain future work.
+
 Goal: after the PDFs are generated, HR should be able to deliver each payslip to its employee with
 one action, using the tools the company already has (WhatsApp Desktop, Outlook, Gmail or any
 mailbox), with no server, SMTP setup or API. Background and evidence: `reports/Offline bulk

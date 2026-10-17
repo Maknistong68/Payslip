@@ -5,16 +5,20 @@
   var $ = function (id) { return document.getElementById(id); };
 
   if (typeof XLSX === 'undefined' || typeof jspdf === 'undefined' || typeof JSZip === 'undefined' ||
-      typeof PayslipSchema === 'undefined' || typeof PayslipPDF === 'undefined' || typeof XlsxImages === 'undefined') {
+      typeof PayslipSchema === 'undefined' || typeof PayslipPDF === 'undefined' || typeof XlsxImages === 'undefined' ||
+      typeof PayslipDelivery === 'undefined') {
     $('libError').classList.remove('hidden');
     return;
   }
 
   var Schema = PayslipSchema;
   var PDF = PayslipPDF;
+  var Delivery = PayslipDelivery;
   var jsPDF = jspdf.jsPDF;
   var STORAGE_KEY = 'payslip-generator-profile-v2';
+  var LOG_KEY_PREFIX = 'payslip-generator-log-';
   var SETTINGS_FILE_VERSION = 2;
+  var EML_BATCH = 50;
 
   // ---------------------------------------------------------------------------
   // State
@@ -25,26 +29,31 @@
       accent: '#1f4e79',
       paper: 'a4',
       display: PDF.mergeOptions({}),
-      logo: null,           // { dataUrl, width, height }
+      logo: null,
       stamp: null,
-      company: {},          // last used company settings (key -> value)
-      columnOverrides: {},  // normalized header -> target
+      company: {},
+      columnOverrides: {},
+      channel: 'whatsapp',
       savedAt: null
     };
   }
 
   var state = {
     step: 1,
-    wb: null,               // parsed workbook (SheetJS)
-    parsed: null,           // Schema.parseWorkbook result
+    wb: null,
+    parsed: null,
     fileName: '',
-    company: {},            // effective company settings used for rendering
-    companyFromExcel: {},   // keys that came from the Excel Settings sheet
+    company: {},
+    companyFromExcel: {},
     excelImages: { logo: null, stamp: null },
     profile: defaultProfile(),
     previewUrl: null,
     cancelExport: false,
-    exporting: false
+    exporting: false,
+    cache: {},          // employeeId -> { bytes, fileName, password, hash }
+    dirHandle: null,    // File System Access directory handle after a folder export
+    exportedTo: '',     // human text: where the PDFs went
+    log: []             // delivery log entries for the current company+period
   };
 
   // ---------------------------------------------------------------------------
@@ -99,7 +108,7 @@
     opts = opts || {};
     var base = defaultProfile();
     if (!p || typeof p !== 'object') return;
-    ['templateId', 'accent', 'paper'].forEach(function (k) { if (p[k]) base[k] = p[k]; });
+    ['templateId', 'accent', 'paper', 'channel'].forEach(function (k) { if (p[k]) base[k] = p[k]; });
     base.display = PDF.mergeOptions(p.display || {});
     if (p.logo && p.logo.dataUrl) base.logo = p.logo;
     if (p.stamp && p.stamp.dataUrl) base.stamp = p.stamp;
@@ -110,7 +119,6 @@
     if (!opts.silent) saveProfile();
   }
 
-  // Draw any browser-decodable image onto a canvas and return a PNG/JPEG data URL + size.
   function normalizeImage(src, preferJpeg) {
     return new Promise(function (resolve, reject) {
       var img = new Image();
@@ -121,42 +129,33 @@
         var canvas = document.createElement('canvas');
         canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
         canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
-        var ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        var dataUrl = preferJpeg ? canvas.toDataURL('image/jpeg', 0.9) : canvas.toDataURL('image/png');
-        resolve({ dataUrl: dataUrl, width: canvas.width, height: canvas.height });
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve({ dataUrl: preferJpeg ? canvas.toDataURL('image/jpeg', 0.9) : canvas.toDataURL('image/png'), width: canvas.width, height: canvas.height });
       };
       img.src = src;
     });
   }
 
+  function readFile(file, as) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onerror = function () { reject(new Error('Could not read the file.')); };
+      reader.onload = function () { resolve(reader.result); };
+      if (as === 'text') reader.readAsText(file);
+      else if (as === 'dataUrl') reader.readAsDataURL(file);
+      else reader.readAsArrayBuffer(file);
+    });
+  }
+
   function fileToImage(file) {
-    return new Promise(function (resolve, reject) {
-      var reader = new FileReader();
-      reader.onerror = function () { reject(new Error('Could not read the image file.')); };
-      reader.onload = function () { resolve(reader.result); };
-      reader.readAsDataURL(file);
-    }).then(function (dataUrl) {
-      return normalizeImage(dataUrl, /jpe?g/i.test(file.type));
-    });
+    return readFile(file, 'dataUrl').then(function (dataUrl) { return normalizeImage(dataUrl, /jpe?g/i.test(file.type)); });
   }
 
-  function readFileAsArrayBuffer(file) {
-    return new Promise(function (resolve, reject) {
-      var reader = new FileReader();
-      reader.onerror = function () { reject(new Error('Could not read the file.')); };
-      reader.onload = function () { resolve(reader.result); };
-      reader.readAsArrayBuffer(file);
-    });
-  }
-
-  function readFileAsText(file) {
-    return new Promise(function (resolve, reject) {
-      var reader = new FileReader();
-      reader.onerror = function () { reject(new Error('Could not read the file.')); };
-      reader.onload = function () { resolve(reader.result); };
-      reader.readAsText(file);
-    });
+  function sha256Hex(bytes) {
+    if (!(window.crypto && crypto.subtle)) return Promise.resolve('');
+    return crypto.subtle.digest('SHA-256', bytes).then(function (buf) {
+      return Array.prototype.map.call(new Uint8Array(buf), function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+    }).catch(function () { return ''; });
   }
 
   // ---------------------------------------------------------------------------
@@ -165,9 +164,7 @@
   function goStep(n) {
     if (n > 1 && !state.parsed) return;
     state.step = n;
-    for (var i = 1; i <= 4; i++) {
-      $('panel' + i).classList.toggle('hidden', i !== n);
-    }
+    for (var i = 1; i <= 5; i++) $('panel' + i).classList.toggle('hidden', i !== n);
     Array.prototype.forEach.call($('stepper').children, function (li) {
       var s = +li.getAttribute('data-step');
       li.classList.toggle('active', s === n);
@@ -177,6 +174,7 @@
     window.scrollTo({ top: 0, behavior: 'smooth' });
     if (n === 3) schedulePreview();
     if (n === 4) renderExportPanel();
+    if (n === 5) renderSendPanel();
   }
 
   Array.prototype.forEach.call(document.querySelectorAll('[data-go]'), function (btn) {
@@ -192,40 +190,32 @@
   // ---------------------------------------------------------------------------
   // Step 1: template downloads, upload
   // ---------------------------------------------------------------------------
+  var XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
   function workbookToArray(wb) {
     return XLSX.write(wb, { type: 'array', bookType: 'xlsx', cellDates: true });
   }
 
-  var XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-
   $('btnTemplate').addEventListener('click', function () {
     downloadBlob(new Blob([workbookToArray(Schema.buildTemplateWorkbook(XLSX))], { type: XLSX_MIME }), 'Payslip_Template.xlsx');
   });
-
   $('btnSampleXlsx').addEventListener('click', function () {
     downloadBlob(new Blob([workbookToArray(Schema.buildTemplateWorkbook(XLSX, { sampleRows: Schema.sampleRows(25) }))], { type: XLSX_MIME }), 'Sample_Payslips.xlsx');
   });
-
   $('btnLoadSample').addEventListener('click', function () {
-    var wb = Schema.buildTemplateWorkbook(XLSX, { sampleRows: Schema.sampleRows(25) });
-    loadWorkbookData(workbookToArray(wb), 'Sample data (25 employees)');
+    loadWorkbookData(workbookToArray(Schema.buildTemplateWorkbook(XLSX, { sampleRows: Schema.sampleRows(25) })), 'Sample data (25 employees)');
   });
 
-  // Template pre-filled with the company details and the logo/stamp pictures.
   $('btnMyTemplate').addEventListener('click', function () {
-    var wb = Schema.buildTemplateWorkbook(XLSX, { settings: state.company });
-    var buf = workbookToArray(wb);
+    var buf = workbookToArray(Schema.buildTemplateWorkbook(XLSX, { settings: state.company }));
     var images = [];
     var logo = effectiveImage('logo');
     var stamp = effectiveImage('stamp');
     if (logo) images.push({ dataUrl: logo.dataUrl, width: logo.width, height: logo.height, name: 'Logo', row: 1, col: 4, maxPx: 220 });
     if (stamp) images.push({ dataUrl: stamp.dataUrl, width: stamp.width, height: stamp.height, name: 'Stamp', row: 8, col: 4, maxPx: 160 });
     XlsxImages.embedImages(JSZip, buf, Schema.SHEET_SETTINGS, images).then(function (out) {
-      var name = PDF.safeFileName('Payslip_Template - ' + (state.company.companyName || 'my company')) + '.xlsx';
-      downloadBlob(new Blob([out], { type: XLSX_MIME }), name);
-    }).catch(function (e) {
-      alert('Could not build the template: ' + e.message);
-    });
+      downloadBlob(new Blob([out], { type: XLSX_MIME }), PDF.safeFileName('Payslip_Template - ' + (state.company.companyName || 'my company')) + '.xlsx');
+    }).catch(function (e) { alert('Could not build the template: ' + e.message); });
   });
 
   var dropzone = $('dropzone');
@@ -246,14 +236,9 @@
   });
 
   function handleFile(file) {
-    if (/\.json$/i.test(file.name)) {
-      return loadSettingsFile(file);
-    }
-    readFileAsArrayBuffer(file).then(function (buf) {
-      loadWorkbookData(buf, file.name);
-    }).catch(function (e) {
-      setAlert($('loadError'), escapeHtml(e.message), 'error');
-    });
+    if (/\.json$/i.test(file.name)) return loadSettingsFile(file);
+    readFile(file).then(function (buf) { loadWorkbookData(buf, file.name); })
+      .catch(function (e) { setAlert($('loadError'), escapeHtml(e.message), 'error'); });
   }
 
   function loadWorkbookData(arrayBuffer, name) {
@@ -268,9 +253,11 @@
     state.wb = wb;
     state.fileName = name;
     state.excelImages = { logo: null, stamp: null };
+    state.dirHandle = null;
+    state.exportedTo = '';
     $('exportMessage').innerHTML = '';
+    $('sendMessage').innerHTML = '';
     reparse();
-    // Pictures (logo / stamp) embedded in the file, read in the background.
     XlsxImages.extractImages(JSZip, arrayBuffer).then(function (images) {
       if (!images.length) return;
       var onSettings = images.filter(function (i) { return Schema.normalizeHeader(i.sheet) === Schema.normalizeHeader(Schema.SHEET_SETTINGS); });
@@ -278,18 +265,16 @@
       var tasks = [];
       if (pick[0]) tasks.push(normalizeImage(XlsxImages.toDataUrl(pick[0]), pick[0].mime === 'image/jpeg').then(function (img) { state.excelImages.logo = img; }, function () {}));
       if (pick[1]) tasks.push(normalizeImage(XlsxImages.toDataUrl(pick[1]), pick[1].mime === 'image/jpeg').then(function (img) { state.excelImages.stamp = img; }, function () {}));
-      return Promise.all(tasks).then(function () {
-        renderImages();
-        schedulePreview();
-      });
-    }).catch(function () { /* not a zip (csv/xls) or unreadable pictures: ignore */ });
+      return Promise.all(tasks).then(function () { renderImages(); invalidate(); });
+    }).catch(function () { /* csv / xls / no pictures */ });
     goStep(2);
   }
 
-  // Re-run the parser with the current column overrides and refresh step 2.
   function reparse() {
     state.parsed = Schema.parseWorkbook(XLSX, state.wb, { overrides: state.profile.columnOverrides });
     mergeCompany();
+    loadLog();
+    invalidate();
     $('fileName').textContent = state.fileName + (state.parsed.sheetName ? ' · sheet "' + state.parsed.sheetName + '"' : '');
     renderReview();
     populatePreviewSelect();
@@ -304,7 +289,8 @@
     Schema.SETTINGS_FIELDS.forEach(function (f) {
       if (f.type === 'image') return;
       var v = excel[f.key];
-      var fromExcel = v !== '' && v != null && !(f.key === 'currency' && !state.parsed.settingsFound);
+      var isDefaultOnly = f.default != null && v === f.default && !state.parsed.settingsFound;
+      var fromExcel = v !== '' && v != null && !isDefaultOnly;
       if (fromExcel) {
         out[f.key] = v;
         state.companyFromExcel[f.key] = true;
@@ -320,13 +306,24 @@
   }
 
   function companyMissing() {
-    return Schema.SETTINGS_FIELDS.filter(function (f) {
-      return f.required && !String(state.company[f.key] || '').trim();
-    });
+    return Schema.SETTINGS_FIELDS.filter(function (f) { return f.required && !String(state.company[f.key] || '').trim(); });
   }
 
   function effectiveImage(kind) {
     return state.excelImages[kind] || state.profile[kind] || null;
+  }
+
+  function setCompanyValue(k, v) {
+    state.company[k] = v;
+    state.profile.company[k] = v;
+    saveProfile();
+    invalidate();
+  }
+
+  // Anything that changes the rendered PDFs clears the per-employee cache.
+  function invalidate() {
+    state.cache = {};
+    schedulePreview();
   }
 
   // ---------------------------------------------------------------------------
@@ -340,7 +337,6 @@
     var infos = p.issues.filter(function (i) { return i.level === 'info'; });
     var missing = companyMissing();
 
-    // Banner: one sentence that tells the user what to do next.
     var banner = '';
     var kind = 'ok';
     if (errs.length) {
@@ -356,28 +352,26 @@
       kind = 'warn';
       banner = '<strong>' + plural(st.ok, 'payslip') + ' ready.</strong> ' + plural(st.withErrors, 'row has', 'rows have') + ' errors and will be skipped unless fixed in Excel. Tick "Only rows with problems" in the Employees list to see them.';
     } else if (st.withWarnings || warns.length) {
-      kind = 'ok';
       banner = '<strong>All ' + plural(st.ok, 'payslip') + ' ready.</strong> There are a few warnings worth a look, but nothing blocking.';
     } else {
       banner = '<strong>All ' + plural(st.ok, 'payslip') + ' ready.</strong> Everything checks out.';
     }
     setAlert($('statusBanner'), banner, kind);
 
-    // Tiles
+    var contactsCls = st.withNoContact ? 'warn' : 'ok';
     var tiles = [
       { label: 'Employees', value: st.total, cls: '' },
       { label: 'Ready', value: st.ok, cls: st.ok ? 'ok' : '' },
       { label: 'Rows with errors', value: st.withErrors, cls: st.withErrors ? 'err' : '' },
-      { label: 'Total net (' + escapeHtml(state.company.currency || 'SAR') + ')', value: Schema.formatMoney(st.totalNet), cls: '' }
+      { label: 'Contacts', value: '<span title="with mobile">' + st.withMobile + ' 📱</span> · <span title="with email">' + st.withEmail + ' ✉</span>', cls: contactsCls, sub: st.withNoContact ? st.withNoContact + ' with neither' : 'all reachable' }
     ];
     $('summaryGrid').innerHTML = tiles.map(function (t) {
-      return '<div class="tile ' + t.cls + '"><div class="tile-label">' + t.label + '</div><div class="tile-value">' + t.value + '</div></div>';
+      return '<div class="tile ' + t.cls + '"><div class="tile-label">' + t.label + '</div><div class="tile-value">' + t.value + '</div>' + (t.sub ? '<div class="muted small">' + t.sub + '</div>' : '') + '</div>';
     }).join('');
 
     renderCompanyForm();
     renderColumns();
 
-    // Messages
     var all = errs.concat(warns, infos);
     $('messagesMeta').innerHTML = all.length
       ? (errs.length ? '<span class="badge err">' + plural(errs.length, 'error') + '</span>' : '') +
@@ -395,19 +389,26 @@
     refreshExportState();
   }
 
+  function companyMetaHtml() {
+    var missing = companyMissing();
+    return missing.length
+      ? '<span class="badge err">' + plural(missing.length, 'required field') + ' missing</span>'
+      : '<span class="badge ok">complete</span> <span>' + escapeHtml(state.company.companyName || '') + ' · ' + escapeHtml(state.company.payPeriod || '') + '</span>';
+  }
+
   function renderCompanyForm() {
     var missing = companyMissing();
     var fromExcelCount = Object.keys(state.companyFromExcel).length;
-    $('companyMeta').innerHTML = missing.length
-      ? '<span class="badge err">' + plural(missing.length, 'required field') + ' missing</span>'
-      : '<span class="badge ok">complete</span> <span>' + escapeHtml(state.company.companyName || '') + ' · ' + escapeHtml(state.company.payPeriod || '') + '</span>';
+    $('companyMeta').innerHTML = companyMetaHtml();
     $('companySource').textContent = state.parsed.settingsFound
       ? 'Filled from the Settings sheet of the file' + (fromExcelCount < 3 ? ' (partly)' : '') + '. You can correct anything here; edits are kept for next time.'
       : 'This file has no Settings sheet. Enter the details here once; they are saved on this computer and in your settings file.';
     $('secCompany').open = missing.length > 0;
 
     var form = $('companyForm');
-    form.innerHTML = Schema.SETTINGS_FIELDS.filter(function (f) { return f.type !== 'image'; }).map(function (f) {
+    // Delivery-related settings live on the Send step; keep this form about the company.
+    var hidden = { messageSubject: 1, messageText: 1, senderEmail: 1 };
+    form.innerHTML = Schema.SETTINGS_FIELDS.filter(function (f) { return f.type !== 'image' && !hidden[f.key]; }).map(function (f) {
       var v = state.company[f.key] || '';
       var isMissing = f.required && !String(v).trim();
       return '<label class="' + (f.key === 'footerNote' || f.key === 'address' ? 'wide' : '') + '"><span>' +
@@ -418,17 +419,11 @@
     Array.prototype.forEach.call(form.querySelectorAll('input'), function (inp) {
       inp.addEventListener('input', function () {
         var k = inp.getAttribute('data-key');
-        state.company[k] = inp.value;
-        if (k === 'currency') state.company[k] = inp.value.toUpperCase();
-        state.profile.company[k] = state.company[k];
-        inp.classList.toggle('missing', !!(Schema.SETTINGS_FIELDS.filter(function (f) { return f.key === k; })[0].required) && !inp.value.trim());
-        saveProfile();
-        var missingNow = companyMissing();
-        $('companyMeta').innerHTML = missingNow.length
-          ? '<span class="badge err">' + plural(missingNow.length, 'required field') + ' missing</span>'
-          : '<span class="badge ok">complete</span> <span>' + escapeHtml(state.company.companyName || '') + ' · ' + escapeHtml(state.company.payPeriod || '') + '</span>';
+        var def = Schema.SETTINGS_FIELDS.filter(function (f) { return f.key === k; })[0];
+        setCompanyValue(k, k === 'currency' ? inp.value.toUpperCase() : inp.value);
+        inp.classList.toggle('missing', !!(def && def.required) && !inp.value.trim());
+        $('companyMeta').innerHTML = companyMetaHtml();
         refreshExportState();
-        schedulePreview();
       });
     });
   }
@@ -447,6 +442,9 @@
     var optionalMissing = [];
     if (!seenKeys.employeeId) optionalMissing.push('Employee ID');
     if (!seenKeys.basicSalary && hasEarning) optionalMissing.push('Basic Salary');
+    if (!seenKeys.mobile) optionalMissing.push('Mobile (needed for WhatsApp)');
+    if (!seenKeys.email) optionalMissing.push('Email (needed for email delivery)');
+    if (!seenKeys.dob) optionalMissing.push('Date of Birth (used for the PDF password)');
 
     var meta = '';
     if (missingReq.length) meta += '<span class="badge err">' + plural(missingReq.length, 'required column') + ' missing</span>';
@@ -458,7 +456,7 @@
 
     var mm = '';
     if (missingReq.length) mm += '<div class="alert alert-error">Missing: <strong>' + missingReq.map(escapeHtml).join('</strong>, <strong>') + '</strong>. Pick the matching column in the "Understood as" list below, or add the column in Excel.</div>';
-    if (optionalMissing.length) mm += '<div class="alert alert-info">Not found (optional): ' + optionalMissing.map(escapeHtml).join(', ') + '. ' + (optionalMissing.indexOf('Employee ID') >= 0 ? 'IDs will be generated from the row order. ' : '') + '</div>';
+    if (optionalMissing.length) mm += '<div class="alert alert-info">Not found (optional): ' + optionalMissing.map(escapeHtml).join(', ') + '.' + (optionalMissing[0] === 'Employee ID' ? ' IDs will be generated from the row order.' : '') + '</div>';
     $('missingColumns').innerHTML = mm;
 
     var choices = Schema.mappingChoices();
@@ -492,14 +490,11 @@
 
     Array.prototype.forEach.call($('columnsTable').querySelectorAll('select'), function (sel) {
       sel.addEventListener('change', function () {
-        var norm = sel.getAttribute('data-norm');
-        var header = sel.getAttribute('data-header');
-        state.profile.columnOverrides[norm] = Schema.choiceToTarget(sel.value, header);
+        state.profile.columnOverrides[sel.getAttribute('data-norm')] = Schema.choiceToTarget(sel.value, sel.getAttribute('data-header'));
         saveProfile();
         var wasOpen = $('secColumns').open;
         reparse();
         $('secColumns').open = wasOpen;
-        schedulePreview();
       });
     });
   }
@@ -515,8 +510,7 @@
       return (s.employeeId + ' ' + s.name).toLowerCase().indexOf(q) >= 0;
     });
     var LIMIT = 500;
-    var shown = rows.slice(0, LIMIT);
-    $('employeeTable').querySelector('tbody').innerHTML = shown.map(function (s) {
+    $('employeeTable').querySelector('tbody').innerHTML = rows.slice(0, LIMIT).map(function (s) {
       var cls = s.hasErrors ? 'row-err' : s.issues.length ? 'row-warn' : '';
       var badge = s.hasErrors ? '<span class="badge err">Error</span>' : s.issues.length ? '<span class="badge warn">Check</span>' : '<span class="badge ok">OK</span>';
       var checks = s.issues.map(function (i) {
@@ -552,7 +546,7 @@
         state.profile.templateId = btn.getAttribute('data-id');
         renderTemplateCards();
         saveProfile();
-        schedulePreview();
+        invalidate();
       });
     });
     document.documentElement.style.setProperty('--accent', state.profile.accent);
@@ -571,17 +565,17 @@
     state.profile.accent = $('accent').value;
     document.documentElement.style.setProperty('--accent', state.profile.accent);
     saveProfile();
-    schedulePreview();
+    invalidate();
   });
   $('paper').addEventListener('change', function () {
     state.profile.paper = $('paper').value;
     saveProfile();
-    schedulePreview();
+    invalidate();
   });
   $('docTitle').addEventListener('input', function () {
     state.profile.display.title = $('docTitle').value;
     saveProfile();
-    schedulePreview();
+    invalidate();
   });
 
   function renderDisplayOptions() {
@@ -601,7 +595,7 @@
         state.profile.display[cb.getAttribute('data-opt')] = cb.checked;
         saveProfile();
         updateDisplayMeta();
-        schedulePreview();
+        invalidate();
       });
     });
     updateDisplayMeta();
@@ -615,8 +609,7 @@
   function renderImages() {
     ['logo', 'stamp'].forEach(function (kind) {
       var img = effectiveImage(kind);
-      var el = $(kind + 'Preview');
-      el.innerHTML = img ? '<img src="' + img.dataUrl + '" alt="' + kind + '">' : (kind === 'logo' ? 'No logo' : 'No stamp / signature');
+      $(kind + 'Preview').innerHTML = img ? '<img src="' + img.dataUrl + '" alt="' + kind + '">' : (kind === 'logo' ? 'No logo' : 'No stamp / signature');
       var src = $(kind + 'Source');
       if (state.excelImages[kind]) src.textContent = 'Taken from the picture in the Excel file.';
       else if (state.profile[kind]) src.textContent = 'Saved on this computer. Tip: insert it on the Settings sheet of the Excel file to keep it with the data.';
@@ -631,10 +624,10 @@
       if (!f) return;
       fileToImage(f).then(function (img) {
         state.profile[kind] = img;
-        state.excelImages[kind] = null; // the user's choice wins over the Excel picture
+        state.excelImages[kind] = null;
         renderImages();
         saveProfile();
-        schedulePreview();
+        invalidate();
       }).catch(function (err) { alert(err.message); });
     });
     $(kind + 'Clear').addEventListener('click', function () {
@@ -642,7 +635,7 @@
       state.excelImages[kind] = null;
       renderImages();
       saveProfile();
-      schedulePreview();
+      invalidate();
     });
   }
 
@@ -658,6 +651,7 @@
       accent: p.accent,
       paper: p.paper,
       display: p.display,
+      channel: p.channel,
       logo: effectiveImage('logo'),
       stamp: effectiveImage('stamp'),
       columnOverrides: p.columnOverrides
@@ -666,24 +660,20 @@
 
   $('btnSaveSettings').addEventListener('click', function () {
     var obj = settingsFileObject();
-    var name = PDF.safeFileName('payslip-settings - ' + (obj.company.companyName || 'my company')) + '.json';
-    downloadBlob(new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' }), name);
+    downloadBlob(new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' }), PDF.safeFileName('payslip-settings - ' + (obj.company.companyName || 'my company')) + '.json');
   });
 
   function loadSettingsFile(file) {
-    return readFileAsText(file).then(function (text) {
+    return readFile(file, 'text').then(function (text) {
       var obj = JSON.parse(text);
       if (!obj || obj.app !== 'payslip-generator') throw new Error('This is not a Payslip Generator settings file.');
       applyProfile(obj);
       state.excelImages = { logo: null, stamp: null };
-      if (state.parsed) {
-        reparse();
-      }
+      if (state.parsed) reparse();
       renderDesignControls();
       updateSavedHint();
-      var msg = 'Settings loaded from ' + escapeHtml(file.name) + (obj.company && obj.company.companyName ? ' (' + escapeHtml(obj.company.companyName) + ')' : '') + '.';
-      setAlert($('loadError'), msg + (state.parsed ? '' : ' Now upload the Excel file.'), 'ok');
-      schedulePreview();
+      setAlert($('loadError'), 'Settings loaded from ' + escapeHtml(file.name) + (obj.company && obj.company.companyName ? ' (' + escapeHtml(obj.company.companyName) + ')' : '') + '.' + (state.parsed ? '' : ' Now upload the Excel file.'), 'ok');
+      invalidate();
     }).catch(function (e) {
       setAlert($('loadError'), 'Could not load settings: ' + escapeHtml(e.message), 'error');
       goStep(1);
@@ -707,7 +697,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Preview + export
+  // PDF generation (shared by preview, export and send)
   // ---------------------------------------------------------------------------
   function exportableSlips() {
     if (!state.parsed) return [];
@@ -725,6 +715,41 @@
       logo: effectiveImage('logo'),
       stamp: effectiveImage('stamp'),
       options: p.display
+    };
+  }
+
+  function protectEnabled() {
+    return $('protectPdfs').checked && String(state.company.passwordRule || 'id+dob').toLowerCase() !== 'none';
+  }
+
+  function passwordFor(slip) {
+    if (!protectEnabled()) return { password: '', hint: '', hintAr: '', error: null, off: true };
+    return Schema.buildPassword(slip, state.company.passwordRule);
+  }
+
+  // One employee's PDF (encrypted when enabled), cached until something changes.
+  function artifactFor(slip) {
+    var key = slip.employeeId + '|' + slip.rowNumber + '|' + (protectEnabled() ? 1 : 0);
+    if (state.cache[key]) return state.cache[key];
+    var pw = passwordFor(slip);
+    var doc = PDF.createDoc(jsPDF, state.profile.paper, { password: pw.password });
+    PDF.renderPayslip(doc, renderContext(slip));
+    PDF.setMeta(doc, state.company, 'Payslip ' + slip.employeeId);
+    var art = {
+      bytes: new Uint8Array(doc.output('arraybuffer')),
+      fileName: Schema.slipFileName(slip, state.company),
+      password: pw,
+      hash: ''
+    };
+    state.cache[key] = art;
+    return art;
+  }
+
+  function messageFor(slip) {
+    var vars = Schema.messageVars(slip, state.company, passwordFor(slip));
+    return {
+      subject: Schema.renderTemplate(state.company.messageSubject || 'Payslip {period} - {company}', vars),
+      text: Schema.renderTemplate(state.company.messageText || '', vars)
     };
   }
 
@@ -756,7 +781,7 @@
     var idx = parseInt($('previewSelect').value, 10) || 0;
     var slip = slips[idx] || slips[0];
     try {
-      var doc = PDF.createDoc(jsPDF, state.profile.paper);
+      var doc = PDF.createDoc(jsPDF, state.profile.paper); // preview is never password protected
       PDF.renderPayslip(doc, renderContext(slip));
       PDF.setMeta(doc, state.company, 'Payslip preview');
       var blob = doc.output('blob');
@@ -775,6 +800,11 @@
     if (state.previewUrl) window.open(state.previewUrl, '_blank');
   });
 
+  // ---------------------------------------------------------------------------
+  // Step 4: export
+  // ---------------------------------------------------------------------------
+  var fsaSupported = typeof window.showDirectoryPicker === 'function';
+
   function renderExportPanel() {
     if (!state.parsed) return;
     var slips = exportableSlips();
@@ -788,6 +818,17 @@
     $('exportSummary').innerHTML = items.map(function (it) {
       return '<div><div class="k">' + it[0] + '</div><div class="v">' + escapeHtml(it[1]) + '</div></div>';
     }).join('');
+
+    var rule = String(state.company.passwordRule || 'id+dob');
+    var cannot = slips.filter(function (s) { return Schema.buildPassword(s, rule).error; }).length;
+    var ruleText = { 'id+dob': 'National ID / Iqama + birth day and month', id: 'National ID / Iqama', dob: 'date of birth (DDMMYYYY)', custom: '"Payslip Password" column', none: 'off' }[rule.toLowerCase()] || rule;
+    $('protectHint').textContent = rule.toLowerCase() === 'none'
+      ? '(Password Rule is "none" in the company settings)'
+      : '(rule: ' + ruleText + (cannot ? '; ' + cannot + ' row' + (cannot === 1 ? '' : 's') + ' lack the data and will be exported without a password' : '') + ')';
+    $('protectPdfs').disabled = rule.toLowerCase() === 'none';
+    if (!fsaSupported) {
+      $('btnExportFolder').classList.add('hidden');
+    }
     refreshExportState();
   }
 
@@ -795,8 +836,7 @@
     var missing = state.parsed ? companyMissing().filter(function (f) { return f.key !== 'crNumber'; }) : [];
     var slips = exportableSlips();
     var can = !!(state.parsed && slips.length && !missing.length && !state.exporting);
-    $('btnExportPdf').disabled = !can;
-    $('btnExportZip').disabled = !can;
+    ['btnExportPdf', 'btnExportZip', 'btnExportFolder'].forEach(function (id) { $(id).disabled = !can; });
     var el = $('exportState');
     if (!state.parsed) { el.innerHTML = ''; return; }
     if (missing.length) {
@@ -812,26 +852,29 @@
     }
   }
 
-  $('skipErrors').addEventListener('change', renderExportPanel);
+  $('skipErrors').addEventListener('change', function () { renderExportPanel(); });
+  $('protectPdfs').addEventListener('change', function () { state.cache = {}; renderExportPanel(); });
 
-  function setProgress(done, total, label) {
-    $('progress').classList.remove('hidden');
-    $('progressFill').style.width = (total ? Math.round((done / total) * 100) : 0) + '%';
-    $('progressText').textContent = label || (done + ' / ' + total);
+  function setProgress(done, total, label, which) {
+    var suffix = which === 5 ? '5' : '';
+    $('progress' + suffix).classList.remove('hidden');
+    $('progressFill' + suffix).style.width = (total ? Math.round((done / total) * 100) : 0) + '%';
+    $('progressText' + suffix).textContent = label || (done + ' / ' + total);
   }
 
-  function beginExport() {
+  function beginExport(which) {
     state.exporting = true;
     state.cancelExport = false;
-    $('btnCancel').classList.remove('hidden');
-    $('exportMessage').innerHTML = '';
+    $('btnCancel').classList.toggle('hidden', which === 5);
+    $(which === 5 ? 'sendMessage' : 'exportMessage').innerHTML = '';
     refreshExportState();
   }
 
-  function endExport() {
+  function endExport(which) {
     state.exporting = false;
     $('btnCancel').classList.add('hidden');
     $('progress').classList.add('hidden');
+    $('progress5').classList.add('hidden');
     refreshExportState();
   }
 
@@ -841,19 +884,32 @@
     return PDF.safeFileName(['Payslips', state.company.companyName, state.company.payPeriod].filter(Boolean).join(' - '));
   }
 
-  function slipFileName(slip) {
-    return PDF.safeFileName([slip.employeeId, slip.name, state.company.payPeriod].filter(Boolean).join(' - ')) + '.pdf';
+  function reportError(el, e) {
+    var cancelled = e && e.message === 'cancelled';
+    if (e && (e.name === 'AbortError')) { el.innerHTML = ''; return; }
+    setAlert(el, cancelled ? 'Export cancelled.' : 'Failed: ' + escapeHtml(e.message), cancelled ? 'warn' : 'error');
   }
 
-  function reportExportError(e) {
-    var cancelled = e && e.message === 'cancelled';
-    setAlert($('exportMessage'), cancelled ? 'Export cancelled.' : 'Export failed: ' + escapeHtml(e.message), cancelled ? 'warn' : 'error');
+  // Generates every exportable slip's artifact with progress; returns items [{slip, art}]
+  async function buildAll(slips, which) {
+    var items = [];
+    for (var i = 0; i < slips.length; i++) {
+      if (state.cancelExport) throw new Error('cancelled');
+      var art = artifactFor(slips[i]);
+      if (!art.hash) art.hash = await sha256Hex(art.bytes);
+      items.push({ slip: slips[i], art: art, fileName: art.fileName, hash: art.hash, password: art.password });
+      if (i % 5 === 0 || i === slips.length - 1) {
+        setProgress(i + 1, slips.length, 'Rendering payslip ' + (i + 1) + ' of ' + slips.length + '…', which);
+        await nextTick();
+      }
+    }
+    return items;
   }
 
   async function exportCombinedPdf() {
     var slips = exportableSlips();
     if (!slips.length) return;
-    beginExport();
+    beginExport(4);
     var started = Date.now();
     try {
       var doc = PDF.createDoc(jsPDF, state.profile.paper);
@@ -873,49 +929,416 @@
       downloadBlob(blob, baseName() + '.pdf');
       setAlert($('exportMessage'), '<strong>Done.</strong> ' + plural(slips.length, 'payslip') + ' in one PDF (' + (blob.size / 1024 / 1024).toFixed(1) + ' MB, ' + ((Date.now() - started) / 1000).toFixed(1) + ' s). Check your Downloads folder.', 'ok');
     } catch (e) {
-      reportExportError(e);
+      reportError($('exportMessage'), e);
     } finally {
-      endExport();
+      endExport(4);
     }
   }
 
   async function exportZip() {
     var slips = exportableSlips();
     if (!slips.length) return;
-    beginExport();
+    beginExport(4);
     var started = Date.now();
     try {
+      var items = await buildAll(slips, 4);
       var zip = new JSZip();
       var folder = zip.folder(baseName());
-      var usedNames = {};
+      items.forEach(function (it) { folder.file(it.fileName, it.art.bytes); });
+      folder.file('manifest.csv', Delivery.manifestCsv(items, state.company));
+      setProgress(1, 1, 'Packing ZIP…');
+      await nextTick();
+      var blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
+      downloadBlob(blob, baseName() + '.zip');
+      state.exportedTo = 'the ZIP file ' + baseName() + '.zip (unzip it before sending)';
+      setAlert($('exportMessage'), '<strong>Done.</strong> ' + plural(items.length, 'PDF file') + ' + manifest.csv in a ZIP (' + (blob.size / 1024 / 1024).toFixed(1) + ' MB, ' + ((Date.now() - started) / 1000).toFixed(1) + ' s).' + protectNote(items), 'ok');
+    } catch (e) {
+      reportError($('exportMessage'), e);
+    } finally {
+      endExport(4);
+    }
+  }
+
+  async function writeToDir(dir, name, data) {
+    var fh = await dir.getFileHandle(name, { create: true });
+    var w = await fh.createWritable();
+    await w.write(data);
+    await w.close();
+  }
+
+  async function exportFolder() {
+    var slips = exportableSlips();
+    if (!slips.length) return;
+    var dir;
+    try {
+      dir = await window.showDirectoryPicker({ mode: 'readwrite', id: 'payslips' });
+    } catch (e) {
+      return; // user cancelled
+    }
+    beginExport(4);
+    var started = Date.now();
+    try {
+      var sub = await dir.getDirectoryHandle(baseName(), { create: true });
+      var items = [];
       for (var i = 0; i < slips.length; i++) {
         if (state.cancelExport) throw new Error('cancelled');
-        var doc = PDF.createDoc(jsPDF, state.profile.paper);
-        PDF.renderPayslip(doc, renderContext(slips[i]));
-        PDF.setMeta(doc, state.company, 'Payslip ' + slips[i].employeeId);
-        var name = slipFileName(slips[i]);
-        if (usedNames[name]) name = name.replace(/\.pdf$/, ' (' + (++usedNames[name]) + ').pdf');
-        else usedNames[name] = 1;
-        folder.file(name, doc.output('arraybuffer'));
+        var art = artifactFor(slips[i]);
+        if (!art.hash) art.hash = await sha256Hex(art.bytes);
+        await writeToDir(sub, art.fileName, art.bytes);
+        items.push({ slip: slips[i], art: art, fileName: art.fileName, hash: art.hash, password: art.password });
         if (i % 5 === 0 || i === slips.length - 1) {
-          setProgress(i + 1, slips.length, 'Rendering payslip ' + (i + 1) + ' of ' + slips.length + '…');
+          setProgress(i + 1, slips.length, 'Writing ' + art.fileName + ' (' + (i + 1) + ' of ' + slips.length + ')…');
           await nextTick();
         }
       }
-      var blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } }, function (meta) {
-        setProgress(Math.round(meta.percent), 100, 'Compressing ZIP… ' + Math.round(meta.percent) + '%');
-      });
-      downloadBlob(blob, baseName() + '.zip');
-      setAlert($('exportMessage'), '<strong>Done.</strong> ' + plural(slips.length, 'PDF file') + ' in a ZIP (' + (blob.size / 1024 / 1024).toFixed(1) + ' MB, ' + ((Date.now() - started) / 1000).toFixed(1) + ' s). Check your Downloads folder.', 'ok');
+      await writeToDir(sub, 'manifest.csv', Delivery.manifestCsv(items, state.company));
+      state.dirHandle = sub;
+      state.exportedTo = 'the folder "' + baseName() + '" you chose';
+      setAlert($('exportMessage'), '<strong>Done.</strong> ' + plural(items.length, 'PDF file') + ' + manifest.csv written to the folder <code>' + escapeHtml(baseName()) + '</code> (' + ((Date.now() - started) / 1000).toFixed(1) + ' s).' + protectNote(items) + ' <button type="button" class="btn btn-small" data-go="5" style="margin-left:8px">Continue to send →</button>', 'ok');
+      $('exportMessage').querySelector('[data-go]').addEventListener('click', function () { goStep(5); });
     } catch (e) {
-      reportExportError(e);
+      reportError($('exportMessage'), e);
     } finally {
-      endExport();
+      endExport(4);
     }
+  }
+
+  function protectNote(items) {
+    if (!protectEnabled()) return ' Files are not password protected.';
+    var without = items.filter(function (it) { return !it.art.password.password; }).length;
+    return ' Each file is password protected' + (without ? ' except ' + without + ' without the needed data' : '') + '.';
   }
 
   $('btnExportPdf').addEventListener('click', exportCombinedPdf);
   $('btnExportZip').addEventListener('click', exportZip);
+  $('btnExportFolder').addEventListener('click', exportFolder);
+
+  // ---------------------------------------------------------------------------
+  // Step 5: send
+  // ---------------------------------------------------------------------------
+  var CHANNELS = [
+    { id: 'whatsapp', name: 'WhatsApp', sub: 'WhatsApp Desktop or the phone', contact: 'mobile' },
+    { id: 'outlook', name: 'Outlook (Windows)', sub: 'Ready drafts for classic Outlook', contact: 'email' },
+    { id: 'mailmerge', name: 'Gmail / any mailbox', sub: 'Mail-merge pack, zero clicks per employee', contact: 'email' },
+    { id: 'print', name: 'Print & sign', sub: 'Paper hand-out with a signature register', contact: 'none' }
+  ];
+
+  var canShareFiles = (function () {
+    try {
+      return !!(navigator.canShare && navigator.canShare({ files: [new File([new Blob(['x'], { type: 'application/pdf' })], 'x.pdf', { type: 'application/pdf' })] }));
+    } catch (e) { return false; }
+  })();
+
+  function currentChannel() {
+    return CHANNELS.filter(function (c) { return c.id === state.profile.channel; })[0] || CHANNELS[0];
+  }
+
+  function logKey() {
+    return LOG_KEY_PREFIX + Schema.asciiSlug(state.company.companyName || 'company').toLowerCase() + '-' + Schema.periodSlug(state.company.payPeriod, state.company.periodStart);
+  }
+
+  function loadLog() {
+    try {
+      state.log = JSON.parse(localStorage.getItem(logKey()) || '[]');
+    } catch (e) { state.log = []; }
+  }
+
+  function saveLog() {
+    try { localStorage.setItem(logKey(), JSON.stringify(state.log)); } catch (e) { /* ignore */ }
+  }
+
+  function isSent(slip) {
+    return state.log.some(function (e) { return e.employeeId === slip.employeeId && !e.undone; });
+  }
+
+  function markSent(slip, channel, note) {
+    var art = state.cache[Object.keys(state.cache).filter(function (k) { return k.indexOf(slip.employeeId + '|') === 0; })[0]];
+    state.log.push({
+      timestamp: new Date().toISOString(),
+      employeeId: slip.employeeId,
+      name: slip.name,
+      channel: channel,
+      contact: channel === 'whatsapp' ? slip.fields.mobile : slip.fields.email,
+      file: art ? art.fileName : Schema.slipFileName(slip, state.company),
+      hash: art ? art.hash : '',
+      note: note || ''
+    });
+    saveLog();
+    renderSendList();
+    renderSummaryChips();
+  }
+
+  function unmarkSent(slip) {
+    state.log = state.log.filter(function (e) { return e.employeeId !== slip.employeeId; });
+    saveLog();
+    renderSendList();
+    renderSummaryChips();
+  }
+
+  function renderSummaryChips() {
+    var slips = exportableSlips();
+    var sent = slips.filter(isSent).length;
+    $('contactSummary').innerHTML = [
+      '<span class="chip"><strong>' + slips.length + '</strong> payslips</span>',
+      '<span class="chip"><strong>' + slips.filter(function (s) { return s.fields.mobile; }).length + '</strong> with mobile</span>',
+      '<span class="chip"><strong>' + slips.filter(function (s) { return s.fields.email; }).length + '</strong> with email</span>',
+      '<span class="chip"><strong>' + sent + '</strong> marked sent</span>',
+      state.exportedTo ? '<span class="chip">PDFs in ' + escapeHtml(state.exportedTo) + '</span>' : '<span class="chip" style="color:var(--warn)">PDFs not exported yet (Export step)</span>'
+    ].join('');
+  }
+
+  function renderSendPanel() {
+    if (!state.parsed) return;
+    var slips = exportableSlips();
+    renderSummaryChips();
+    $('channelCards').innerHTML = CHANNELS.map(function (c) {
+      var count = c.contact === 'mobile' ? slips.filter(function (s) { return s.fields.mobile; }).length
+        : c.contact === 'email' ? slips.filter(function (s) { return s.fields.email; }).length : slips.length;
+      return '<button type="button" class="channel-card' + (c.id === state.profile.channel ? ' active' : '') + '" data-id="' + c.id + '">' +
+        '<span class="ch-name">' + escapeHtml(c.name) + '</span><span class="ch-sub">' + escapeHtml(c.sub) + '</span>' +
+        '<span class="ch-count">' + count + ' of ' + slips.length + ' reachable</span></button>';
+    }).join('');
+    Array.prototype.forEach.call($('channelCards').querySelectorAll('.channel-card'), function (btn) {
+      btn.addEventListener('click', function () {
+        state.profile.channel = btn.getAttribute('data-id');
+        saveProfile();
+        renderSendPanel();
+      });
+    });
+    $('msgSubject').value = state.company.messageSubject || '';
+    $('msgFrom').value = state.company.senderEmail || '';
+    $('msgText').value = state.company.messageText || '';
+    renderChannelHelp();
+    renderMessagePreview();
+    renderSendList();
+  }
+
+  function renderChannelHelp() {
+    var ch = currentChannel();
+    var html = '';
+    if (ch.id === 'whatsapp') {
+      html = '<strong>How it works.</strong> Each row opens the employee\'s WhatsApp chat with the message already typed. ' +
+        (canShareFiles
+          ? 'On this browser the <b>Share</b> button also hands the PDF itself to WhatsApp through the system share sheet: pick WhatsApp, pick the contact, send.'
+          : 'Attach the PDF by dragging it from ' + (state.exportedTo ? escapeHtml(state.exportedTo) : 'the exported folder') + ' into the chat (the file name is shown in the row).') +
+        '<ol><li>Open WhatsApp Desktop and keep it logged in.</li><li>Save the employees as contacts first if you can; many new chats to unsaved numbers can get the account temporarily restricted.</li>' +
+        '<li>Work down the list. After each send the row is ticked automatically; untick it if the send failed.</li><li>Pause for a few minutes every 50 messages. If WhatsApp shows a "restricted" notice, stop for the day.</li></ol>' +
+        '<p class="muted small">On macOS use the "+" attach button in WhatsApp, not drag-and-drop (recent versions delete the dragged original).</p>';
+    } else if (ch.id === 'outlook') {
+      html = '<strong>How it works.</strong> Each row downloads a ready email (<code>.eml</code>) with the PDF attached. Double-click it: classic Outlook for Windows opens it as a draft; press Send. ' +
+        'For everyone at once, download the batch pack: folders of ' + EML_BATCH + ' drafts (select all, press Enter), a guide, and an Outlook macro that saves every message to Drafts in one run.' +
+        '<p class="muted small">Works with classic Outlook (Microsoft 365, 2021, 2019). The new Outlook, Outlook for Mac and web mail open these files read-only; use "Gmail / any mailbox" instead. Microsoft 365 sends about 30 messages per minute.</p>' +
+        '<div class="actions"><button type="button" class="btn btn-primary" id="btnEmlPack">Download Outlook drafts pack</button></div>';
+    } else if (ch.id === 'mailmerge') {
+      html = '<strong>How it works.</strong> Download the Mail Merge pack: all PDFs, a <code>mailmerge.csv</code> with one row per employee, and a one-page guide. ' +
+        'Open it with the free Thunderbird email program and its Mail Merge add-on, signed in to your Gmail, Microsoft 365 or any mailbox. One run sends every payslip to its employee with the right attachment.' +
+        '<p class="muted small">First-time setup takes about 10 minutes; next month only the sending step. Limits: free Gmail 500 messages per day, Google Workspace 2,000, Microsoft 365 about 30 per minute.</p>' +
+        '<div class="actions"><button type="button" class="btn btn-primary" id="btnMergePack">Download Mail Merge pack</button></div>' +
+        '<p class="muted small" style="margin-top:10px">No installation possible? Each row below opens a Gmail compose window with address, subject and text; attach the PDF from the exported folder by hand.</p>';
+    } else {
+      html = '<strong>How it works.</strong> Print the combined PDF from the Export step (one page per employee), hand the slips out, and have each employee sign the acknowledgement register. The signed register is your proof of delivery for the wage records.' +
+        '<div class="actions"><button type="button" class="btn btn-primary" id="btnRegister">Download acknowledgement register (PDF)</button></div>';
+    }
+    $('channelHelp').innerHTML = html;
+    if ($('btnEmlPack')) $('btnEmlPack').addEventListener('click', downloadEmlPack);
+    if ($('btnMergePack')) $('btnMergePack').addEventListener('click', downloadMergePack);
+    if ($('btnRegister')) $('btnRegister').addEventListener('click', downloadRegister);
+    $('sendContactHead').textContent = ch.contact === 'mobile' ? 'Mobile' : ch.contact === 'email' ? 'Email' : 'Department';
+  }
+
+  function renderMessagePreview() {
+    var slips = exportableSlips();
+    if (!slips.length) { $('msgPreview').textContent = ''; return; }
+    var m = messageFor(slips[0]);
+    $('msgPreview').textContent = m.subject + '\n\n' + m.text;
+  }
+
+  ['msgSubject', 'msgFrom', 'msgText'].forEach(function (id) {
+    $(id).addEventListener('input', function () {
+      var key = { msgSubject: 'messageSubject', msgFrom: 'senderEmail', msgText: 'messageText' }[id];
+      setCompanyValue(key, $(id).value);
+      renderMessagePreview();
+      renderSendList();
+    });
+  });
+
+  function renderSendList() {
+    var ch = currentChannel();
+    var slips = exportableSlips();
+    var q = $('sendSearch').value.trim().toLowerCase();
+    var hideSent = $('hideSent').checked;
+    var rows = slips.filter(function (s) {
+      if (hideSent && isSent(s)) return false;
+      if (!q) return true;
+      return (s.employeeId + ' ' + s.name).toLowerCase().indexOf(q) >= 0;
+    });
+    var LIMIT = 300;
+    var tbody = $('sendTable').querySelector('tbody');
+    tbody.innerHTML = rows.slice(0, LIMIT).map(function (s, i) {
+      var sent = isSent(s);
+      var contact = ch.contact === 'mobile' ? s.fields.mobile : ch.contact === 'email' ? s.fields.email : (s.fields.department || '');
+      var missing = ch.contact !== 'none' && !contact;
+      var fileName = Schema.slipFileName(s, state.company);
+      var acts = '';
+      if (ch.id === 'whatsapp') {
+        if (!missing) {
+          var m = messageFor(s);
+          if (canShareFiles) acts += '<button type="button" class="btn btn-small btn-primary" data-act="share" data-i="' + i + '">Share PDF</button>';
+          acts += '<a class="btn btn-small" href="' + escapeHtml(Delivery.waLink(contact, m.subject + '\n' + m.text)) + '" target="_blank" rel="noopener" data-act="wa" data-i="' + i + '">Open chat</a>';
+        }
+        acts += '<button type="button" class="btn btn-small btn-ghost" data-act="pdf" data-i="' + i + '">PDF</button>';
+      } else if (ch.id === 'outlook') {
+        if (!missing) acts += '<button type="button" class="btn btn-small btn-primary" data-act="eml" data-i="' + i + '">Outlook draft</button>';
+        acts += '<button type="button" class="btn btn-small btn-ghost" data-act="pdf" data-i="' + i + '">PDF</button>';
+      } else if (ch.id === 'mailmerge') {
+        if (!missing) {
+          var mm = messageFor(s);
+          acts += '<a class="btn btn-small" href="' + escapeHtml(Delivery.gmailComposeLink(contact, mm.subject, mm.text)) + '" target="_blank" rel="noopener" data-act="gmail" data-i="' + i + '">Gmail compose</a>';
+          acts += '<a class="btn btn-small btn-ghost" href="' + escapeHtml(Delivery.mailtoLink(contact, mm.subject, mm.text)) + '" data-act="mailto" data-i="' + i + '">Other mail app</a>';
+        }
+        acts += '<button type="button" class="btn btn-small btn-ghost" data-act="pdf" data-i="' + i + '">PDF</button>';
+      } else {
+        acts += '<button type="button" class="btn btn-small btn-ghost" data-act="pdf" data-i="' + i + '">PDF</button>';
+      }
+      return '<tr class="' + (sent ? 'sent' : '') + '" data-i="' + i + '">' +
+        '<td><input type="checkbox" data-act="tick" data-i="' + i + '"' + (sent ? ' checked' : '') + ' title="Mark as sent"></td>' +
+        '<td>' + escapeHtml(s.employeeId) + '</td>' +
+        '<td class="name">' + escapeHtml(s.name) + '</td>' +
+        '<td>' + (missing ? '<span class="nocontact">no ' + (ch.contact === 'mobile' ? 'mobile' : 'email') + ' in file</span>' : escapeHtml(ch.contact === 'mobile' ? '+' + contact : contact)) + '</td>' +
+        '<td class="muted small">' + escapeHtml(fileName) + '</td>' +
+        '<td class="acts">' + acts + '</td></tr>';
+    }).join('');
+    tbody.__rows = rows;
+    $('sendCount').textContent = rows.length === slips.length ? slips.length : rows.length + ' of ' + slips.length;
+    $('sendNote').textContent = rows.length > LIMIT ? 'Showing the first ' + LIMIT + ' rows. Use the search box or tick "Hide sent" to see the rest.' : '';
+  }
+
+  $('sendSearch').addEventListener('input', renderSendList);
+  $('hideSent').addEventListener('change', renderSendList);
+
+  // One delegated handler for every row action. Links (wa.me / Gmail / mailto) are real anchors so
+  // browsers do not treat them as popups; we only record the click.
+  $('sendTable').addEventListener('click', function (e) {
+    var el = e.target.closest('[data-act]');
+    if (!el) return;
+    var rows = $('sendTable').querySelector('tbody').__rows || [];
+    var slip = rows[+el.getAttribute('data-i')];
+    if (!slip) return;
+    var act = el.getAttribute('data-act');
+    if (act === 'tick') {
+      if (el.checked) markSent(slip, currentChannel().id, 'manual');
+      else unmarkSent(slip);
+      return;
+    }
+    if (act === 'pdf') {
+      var art = artifactFor(slip);
+      downloadBlob(new Blob([art.bytes], { type: 'application/pdf' }), art.fileName);
+      return;
+    }
+    if (act === 'eml') {
+      var a1 = artifactFor(slip);
+      var m1 = messageFor(slip);
+      var eml = Delivery.buildEml({ from: state.company.senderEmail, to: slip.fields.email, subject: m1.subject, text: m1.text, fileName: a1.fileName, pdfBytes: a1.bytes });
+      downloadBlob(new Blob([eml], { type: 'message/rfc822' }), a1.fileName.replace(/\.pdf$/, '.eml'));
+      markSent(slip, 'outlook', 'draft downloaded');
+      return;
+    }
+    if (act === 'share') {
+      e.preventDefault();
+      var a2 = artifactFor(slip);
+      var m2 = messageFor(slip);
+      var file = new File([a2.bytes], a2.fileName, { type: 'application/pdf' });
+      navigator.share({ files: [file], title: m2.subject, text: m2.subject + '\n' + m2.text }).then(function () {
+        markSent(slip, 'whatsapp', 'shared');
+      }).catch(function (err) {
+        if (err && err.name !== 'AbortError') setAlert($('sendMessage'), 'Share failed: ' + escapeHtml(err.message) + '. Use "Open chat" and attach the file by hand.', 'warn');
+      });
+      return;
+    }
+    if (act === 'wa' || act === 'gmail' || act === 'mailto') {
+      // let the anchor open, then record it
+      setTimeout(function () { markSent(slip, act === 'wa' ? 'whatsapp' : 'email', act === 'wa' ? 'chat opened' : 'compose opened'); }, 50);
+    }
+  });
+
+  async function downloadEmlPack() {
+    var slips = exportableSlips().filter(function (s) { return s.fields.email; });
+    if (!slips.length) { setAlert($('sendMessage'), 'No employee has an email address in the file.', 'warn'); return; }
+    beginExport(5);
+    try {
+      var items = await buildAll(slips, 5);
+      var zip = new JSZip();
+      var root = zip.folder(baseName() + ' - Outlook drafts');
+      items.forEach(function (it, i) {
+        var m = messageFor(it.slip);
+        var eml = Delivery.buildEml({ from: state.company.senderEmail, to: it.slip.fields.email, subject: m.subject, text: m.text, fileName: it.fileName, pdfBytes: it.art.bytes });
+        root.folder('batch-' + ('0' + (Math.floor(i / EML_BATCH) + 1)).slice(-2)).file(it.fileName.replace(/\.pdf$/, '.eml'), eml);
+      });
+      var pdfs = root.folder('pdf');
+      items.forEach(function (it) { pdfs.file(it.fileName, it.art.bytes); });
+      pdfs.file('manifest.csv', Delivery.manifestCsv(items, state.company));
+      pdfs.file('OutlookDrafts.bas', Delivery.outlookVbaModule(state.company));
+      root.file('READ ME - how to send.html', Delivery.outlookGuideHtml(state.company, EML_BATCH));
+      setProgress(1, 1, 'Packing ZIP…', 5);
+      await nextTick();
+      var blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
+      downloadBlob(blob, baseName() + ' - Outlook drafts.zip');
+      setAlert($('sendMessage'), '<strong>Done.</strong> ' + plural(items.length, 'draft') + ' in ' + Math.ceil(items.length / EML_BATCH) + ' batch folder(s), plus the PDFs, manifest and macro (' + (blob.size / 1024 / 1024).toFixed(1) + ' MB). Open "READ ME - how to send.html" first.', 'ok');
+    } catch (e) {
+      reportError($('sendMessage'), e);
+    } finally {
+      endExport(5);
+    }
+  }
+
+  async function downloadMergePack() {
+    var all = exportableSlips();
+    var slips = all.filter(function (s) { return s.fields.email; });
+    if (!slips.length) { setAlert($('sendMessage'), 'No employee has an email address in the file.', 'warn'); return; }
+    beginExport(5);
+    try {
+      var items = await buildAll(slips, 5);
+      items.forEach(function (it) {
+        var m = messageFor(it.slip);
+        it.subject = m.subject;
+        it.body = m.text;
+      });
+      var zip = new JSZip();
+      var root = zip.folder(baseName() + ' - Mail Merge');
+      items.forEach(function (it) { root.file(it.fileName, it.art.bytes); });
+      root.file('mailmerge.csv', Delivery.mailMergeCsv(items, state.company));
+      root.file('manifest.csv', Delivery.manifestCsv(items, state.company));
+      root.file('READ ME - how to send.html', Delivery.mailMergeGuideHtml(state.company, { withEmail: items.length, withoutEmail: all.length - items.length }));
+      setProgress(1, 1, 'Packing ZIP…', 5);
+      await nextTick();
+      var blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
+      downloadBlob(blob, baseName() + ' - Mail Merge.zip');
+      setAlert($('sendMessage'), '<strong>Done.</strong> Mail Merge pack with ' + plural(items.length, 'PDF') + ', mailmerge.csv and the guide (' + (blob.size / 1024 / 1024).toFixed(1) + ' MB). Open "READ ME - how to send.html" first.' + (all.length - items.length ? ' ' + (all.length - items.length) + ' employee(s) without email are not included.' : ''), 'ok');
+    } catch (e) {
+      reportError($('sendMessage'), e);
+    } finally {
+      endExport(5);
+    }
+  }
+
+  function downloadRegister() {
+    var slips = exportableSlips();
+    var doc = PDF.createDoc(jsPDF, state.profile.paper);
+    PDF.renderRegister(doc, { settings: state.company, slips: slips });
+    PDF.setMeta(doc, state.company, 'Acknowledgement register');
+    downloadBlob(doc.output('blob'), baseName() + ' - Acknowledgement register.pdf');
+  }
+
+  $('btnLogCsv').addEventListener('click', function () {
+    downloadBlob(new Blob([Delivery.deliveryLogCsv(state.log)], { type: 'text/csv' }), baseName() + ' - delivery log.csv');
+  });
+  $('btnClearSent').addEventListener('click', function () {
+    if (!state.log.length || confirm('Clear all "sent" ticks for ' + (state.company.payPeriod || 'this period') + '? The downloaded delivery log keeps the history.')) {
+      state.log = [];
+      saveLog();
+      renderSendPanel();
+    }
+  });
 
   // ---------------------------------------------------------------------------
   // Init
@@ -927,11 +1350,12 @@
   updateSavedHint();
   goStep(1);
 
-  // Expose for tests / debugging
   window.PayslipApp = {
     state: state,
     loadWorkbookData: loadWorkbookData,
     exportableSlips: exportableSlips,
+    artifactFor: artifactFor,
+    messageFor: messageFor,
     goStep: goStep,
     applyProfile: applyProfile
   };

@@ -11,7 +11,7 @@ The Excel file never leaves the computer.
 ## How to use
 
 Open `index.html` in Chrome, Edge or Firefox (double-click it; it works from a USB stick or a shared drive).
-The page is a four-step wizard:
+The page is a five-step wizard:
 
 1. **Upload** – drop the Excel file. First time? Download the template (or a filled example). Used it before?
    Load the settings file you saved last time.
@@ -22,11 +22,25 @@ The page is a four-step wizard:
      in one click, and the choice is remembered for the next upload.
    - *Employees*: every row with its calculated earnings, deductions, net and the checks that failed.
 3. **Design** – template (Classic, Modern, Minimal), accent colour, paper size, title, logo and stamp,
-   and a checklist of what to print (CR number, IBAN, attendance, amount in words, signature lines…),
-   with a live preview. *Save settings file* / *Load settings file* keep every payslip uniform across
-   months and computers; *Download my template* gives an Excel file already filled with your company
-   details and logo.
-4. **Export** – one combined PDF, or a ZIP with one PDF per employee. 1,000 employees take a few seconds.
+   and a checklist of what to print, with a live preview. *Save settings file* / *Load settings file* keep
+   every payslip uniform across months and computers; *Download my template* gives an Excel file already
+   filled with your company details and logo.
+4. **Export** – a folder of PDFs (Chrome/Edge, written straight to a folder you pick) or a ZIP, one file per
+   employee named `EMP-001_2026-10_Name.pdf` plus a `manifest.csv`; each file is password protected using
+   the *Password Rule* (default: National ID / Iqama + birth day and month). A combined PDF for printing or
+   the archive is also available.
+5. **Send** – hand each payslip to its employee with the tools you already have. Nothing is sent by the page:
+   - **WhatsApp**: one button per employee opens the chat with the message typed; on an HTTPS page in
+     Chrome/Edge/Safari a *Share PDF* button hands the file itself to WhatsApp through the system share sheet.
+   - **Outlook (Windows)**: one `.eml` per employee that classic Outlook opens as a ready draft with the PDF
+     attached, plus a pack with batches of 50, a guide and a macro that saves every draft in one run.
+   - **Gmail / any mailbox**: a Mail Merge pack (PDFs + `mailmerge.csv` + guide) for the free Thunderbird
+     Mail Merge add-on, which sends every payslip with its own attachment in one run.
+   - **Print & sign**: an acknowledgement register to collect signatures.
+   Rows are ticked as you go; the ticks survive reloads and export as a delivery log CSV with file hashes.
+
+The research behind the delivery design is in `reports/Offline bulk payslip delivery options.md`, and the
+build plan in `docs/DELIVERY_PLAN.md`.
 
 ## What the file can look like
 
@@ -42,6 +56,10 @@ The template gives the best result, but any salary sheet is accepted:
   are only cross-checked and a warning is shown on mismatch.
 - Logo: insert the picture on the `Settings` sheet (Insert → Pictures); a second picture becomes the stamp/signature.
   Pictures are read straight out of the .xlsx.
+- Delivery columns (optional): **Mobile** (any format; `05…` becomes `9665…`), **Email**, **Date of Birth**
+  (used for the PDF password). Delivery settings on the `Settings` sheet: Sender Email, Message Subject,
+  Message Text (with `{name}` `{period}` `{company}` `{net}` `{password_hint}` placeholders), Password Rule
+  (`id+dob`, `id`, `dob`, `custom`, `none`) and Default Country Code.
 - Names and text can be in English or Arabic. Arabic is printed with the bundled Amiri font (SIL Open Font License);
   other scripts (Cyrillic, Chinese…) are flagged in the checks and print as `?`.
 
@@ -54,9 +72,10 @@ index.html        the page
 css/styles.css
 js/schema.js      Excel template definition, tolerant parser, column guessing and validation (pure functions)
 js/xlsx-images.js reads pictures out of an .xlsx and embeds pictures into one (JSZip)
-js/pdf.js         the three PDF designs and the display options (jsPDF)
+js/pdf.js         the three PDF designs, display options, PDF passwords, acknowledgement register (jsPDF)
+js/delivery.js    .eml drafts, mail-merge CSV, WhatsApp/Gmail links, Outlook macro and guides
 js/fonts/         Amiri Regular/Bold as base64 for Arabic text, plus its OFL licence
-js/app.js         the four-step UI, settings file, preview and export
+js/app.js         the five-step UI, settings file, preview, export and send
 js/vendor/        SheetJS, jsPDF, JSZip (bundled so the page works offline)
 samples/          template, sample workbook, sample PDFs
 tools/            build-samples.js (regenerates samples/) and test.js (smoke tests)
@@ -74,10 +93,17 @@ No build step; edit the files and reload the page.
 
 ## Known limitations
 
-- Arabic is supported for values (names, titles, company name, custom pay lines, remarks, footer); the fixed labels
-  ("Basic Salary", "Net Pay"…) and the amount in words stay in English. Text mixing Arabic and English words inside
-  one cell can come out in a slightly different order than typed.
-- Each PDF that contains Arabic embeds a subset of the font (about 25 KB per file). A ZIP of 1,000 Arabic payslips
-  therefore takes around 1–2 minutes; the combined single PDF is as fast as before.
+- Nothing can be sent from a web page without a click per employee. WhatsApp needs one click (plus picking
+  the contact in the share sheet, or dragging the file); the only zero-click route is the Thunderbird Mail
+  Merge pack, which needs a one-time install.
+- The `.eml` drafts open as editable drafts only in classic Outlook for Windows (build 2109 or newer).
+  New Outlook, Outlook for Mac, Apple Mail and web mail open them read-only.
+- PDF passwords use the 40-bit RC4 standard security handler built into jsPDF: it stops casual opening and
+  works in every viewer, but it is not strong encryption. A 10-digit Iqama alone can be brute-forced, which is
+  why the default rule adds the birth day and month. AES-256 is a planned upgrade.
+- The folder export and the Share PDF button are Chrome/Edge (and Safari for share) features; Firefox users
+  get the ZIP and the "Open chat" button.
+- Arabic is supported for values (names, titles, company name, custom pay lines, remarks, footer); the fixed
+  labels and the amount in words stay in English.
+- A ZIP of 1,000 Arabic payslips takes around 1–2 minutes because each file carries its own font subset.
 - Pictures in formats the browser cannot decode (EMF/WMF) are ignored; use PNG or JPG in the Excel file.
-- One payslip per page, A4 or Letter, portrait.

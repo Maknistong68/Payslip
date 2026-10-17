@@ -68,6 +68,9 @@
     { key: 'f_jobTitle', label: 'Job title', group: 'Employee details', def: true },
     { key: 'f_department', label: 'Department', group: 'Employee details', def: true },
     { key: 'f_joiningDate', label: 'Joining date', group: 'Employee details', def: true },
+    { key: 'f_dob', label: 'Date of birth', group: 'Employee details', def: false },
+    { key: 'f_mobile', label: 'Mobile', group: 'Employee details', def: false },
+    { key: 'f_email', label: 'Email', group: 'Employee details', def: false },
     { key: 'f_bankName', label: 'Bank name', group: 'Employee details', def: true },
     { key: 'f_iban', label: 'IBAN', group: 'Employee details', def: true },
     { key: 'f_workingDays', label: 'Working days', group: 'Attendance', def: true },
@@ -244,6 +247,9 @@
       ['Department', o.f_department ? f.department : ''],
       ['Nationality', o.f_nationality ? f.nationality : ''],
       ['Joining Date', o.f_joiningDate ? f.joiningDate : ''],
+      ['Date of Birth', o.f_dob ? f.dob : ''],
+      ['Mobile', o.f_mobile && f.mobile ? '+' + f.mobile : ''],
+      ['Email', o.f_email ? f.email : ''],
       ['Bank', o.f_bankName ? f.bankName : ''],
       ['IBAN', o.f_iban ? f.iban : ''],
       ['Working Days', o.f_workingDays ? f.workingDays : ''],
@@ -464,10 +470,117 @@
   // Document helpers
   // ---------------------------------------------------------------------------
 
-  function createDoc(jsPDF, paper) {
+  /**
+   * createDoc(jsPDF, paper, { password }) - with a password the PDF is encrypted with jsPDF's
+   * built-in standard security handler (40-bit RC4): it stops casual opening and works in every
+   * viewer, but it is not strong encryption. Printing stays allowed; copying/modifying is not.
+   */
+  function createDoc(jsPDF, paper, opts) {
     var p = PAPERS[paper] || PAPERS.a4;
-    var doc = new jsPDF({ unit: 'mm', format: p.format, compress: true });
-    return doc;
+    var init = { unit: 'mm', format: p.format, compress: true };
+    if (opts && opts.password) {
+      init.encryption = {
+        userPassword: String(opts.password),
+        ownerPassword: opts.ownerPassword || randomPassword(),
+        userPermissions: ['print']
+      };
+    }
+    return new jsPDF(init);
+  }
+
+  function randomPassword() {
+    var chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+    var s = '';
+    for (var i = 0; i < 20; i++) s += chars.charAt(Math.floor(Math.random() * chars.length));
+    return s;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Acknowledgement register: a printable table (one block per department) that employees
+  // sign when they receive their payslip. Proof of delivery for paper hand-outs.
+  // ---------------------------------------------------------------------------
+  function renderRegister(doc, ctx) {
+    var settings = ctx.settings || {};
+    var slips = ctx.slips || [];
+    var style = buildStyle('classic', '#000000');
+    var P = new Painter(doc, style);
+    var pageW = doc.internal.pageSize.getWidth();
+    var pageH = doc.internal.pageSize.getHeight();
+    var M = 12;
+    var cols = [
+      { label: '#', w: 9, align: 'left' },
+      { label: 'Employee ID', w: 26, align: 'left' },
+      { label: 'Name', w: 54, align: 'left' },
+      { label: 'National ID / Iqama', w: 30, align: 'left' },
+      { label: 'Net (' + (settings.currency || 'SAR') + ')', w: 24, align: 'right' },
+      { label: 'Signature', w: 0, align: 'left' },
+      { label: 'Date', w: 20, align: 'left' }
+    ];
+    var fixed = cols.reduce(function (a, c) { return a + c.w; }, 0);
+    cols[5].w = pageW - M * 2 - fixed;
+    var rowH = 9;
+    var groups = {};
+    slips.forEach(function (s) {
+      var k = s.fields.department || '';
+      (groups[k] = groups[k] || []).push(s);
+    });
+    var keys = Object.keys(groups).sort();
+    var page = 1;
+    var y = 0;
+
+    function header(dept) {
+      y = M;
+      P.text(String(settings.companyName || ''), M, y + 5, { size: 12, weight: 'bold' });
+      P.text('Payslip acknowledgement register', pageW - M, y + 5, { size: 12, weight: 'bold', align: 'right' });
+      P.text(['CR ' + (settings.crNumber || '-'), 'Pay period: ' + (settings.payPeriod || '-'), dept ? 'Department: ' + dept : ''].filter(Boolean).join('   ·   '), M, y + 10.5, { size: 8.5, color: style.muted });
+      P.text('I confirm that I received my payslip for this period.', pageW - M, y + 10.5, { size: 8, color: style.muted, align: 'right' });
+      y += 15;
+      var x = M;
+      P.rect(M, y, pageW - M * 2, 7, [230, 230, 230], style.rule);
+      cols.forEach(function (c) {
+        P.text(c.label, c.align === 'right' ? x + c.w - 2 : x + 2, y + 4.8, { size: 7.5, weight: 'bold', align: c.align });
+        x += c.w;
+      });
+      y += 7;
+    }
+
+    function footer() {
+      P.text('Page ' + page, pageW - M, pageH - 6, { size: 7.5, color: style.muted, align: 'right' });
+      P.text('Generated ' + Schema.formatDate(new Date()) + ' · Signed register to be kept with the wage records.', M, pageH - 6, { size: 7.5, color: style.muted });
+    }
+
+    header('');
+    keys.forEach(function (dept) {
+      if (y + rowH * 2 + 6 > pageH - 14) {
+        footer();
+        doc.addPage();
+        page++;
+        header('');
+      }
+      if (keys.length > 1 || dept) {
+        P.rect(M, y, pageW - M * 2, 6, [245, 245, 245], style.rule);
+        P.text((dept || 'No department') + '  (' + groups[dept].length + ')', M + 2, y + 4.2, { size: 8, weight: 'bold' });
+        y += 6;
+      }
+      groups[dept].forEach(function (s, i) {
+        if (y + rowH > pageH - 14) {
+          footer();
+          doc.addPage();
+          page++;
+          header('');
+        }
+        var x = M;
+        P.rect(M, y, pageW - M * 2, rowH, i % 2 ? [248, 248, 248] : null, style.rule);
+        var vals = [String(i + 1), s.employeeId, s.name, s.fields.nationalId || '', fmt(s.net), '', ''];
+        cols.forEach(function (c, ci) {
+          if (vals[ci]) P.text(vals[ci], c.align === 'right' ? x + c.w - 2 : x + 2, y + 5.8, { size: 8.5, align: c.align, maxWidth: c.w - 4, truncate: true });
+          x += c.w;
+        });
+        y += rowH;
+      });
+    });
+    if (!keys.length) P.text('No employees.', M, y + 8, { size: 9, color: style.muted });
+    footer();
   }
 
   function setMeta(doc, settings, title) {
@@ -498,6 +611,7 @@
     DEFAULT_OPTIONS: DEFAULT_OPTIONS,
     mergeOptions: mergeOptions,
     renderPayslip: renderPayslip,
+    renderRegister: renderRegister,
     createDoc: createDoc,
     setMeta: setMeta,
     safeFileName: safeFileName,

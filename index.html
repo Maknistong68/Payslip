@@ -20,6 +20,7 @@
         <li data-step="2" class="disabled"><span class="dot">2</span><span class="lbl">Review</span></li>
         <li data-step="3" class="disabled"><span class="dot">3</span><span class="lbl">Design</span></li>
         <li data-step="4" class="disabled"><span class="dot">4</span><span class="lbl">Export</span></li>
+        <li data-step="5" class="disabled"><span class="dot">5</span><span class="lbl">Send</span></li>
       </ol>
       <span class="offline-badge" title="Nothing is uploaded to any server">Offline</span>
     </div>
@@ -255,16 +256,23 @@
       <div class="export-summary" id="exportSummary"></div>
       <div id="exportState"></div>
 
-      <label class="check" style="margin:14px 0"><input type="checkbox" id="skipErrors" checked> Skip rows with errors (recommended)</label>
+      <div class="export-options">
+        <label class="check"><input type="checkbox" id="skipErrors" checked> Skip rows with errors (recommended)</label>
+        <label class="check"><input type="checkbox" id="protectPdfs" checked> Password-protect each employee's PDF <span class="muted small" id="protectHint"></span></label>
+      </div>
 
       <div class="export-buttons">
-        <button type="button" class="export-btn" id="btnExportPdf" disabled>
-          <span class="export-btn-title">One PDF, all payslips</span>
-          <span class="export-btn-sub">Best for printing or archiving. One page per employee.</span>
+        <button type="button" class="export-btn" id="btnExportFolder" disabled>
+          <span class="export-btn-title">Folder of PDFs, one per employee</span>
+          <span class="export-btn-sub">Pick a folder once; files are written straight into it with a manifest. Best for sending.</span>
         </button>
         <button type="button" class="export-btn" id="btnExportZip" disabled>
           <span class="export-btn-title">ZIP, one PDF per employee</span>
-          <span class="export-btn-sub">Best for emailing or sharing each payslip individually.</span>
+          <span class="export-btn-sub">Same files in a ZIP, for browsers without folder access.</span>
+        </button>
+        <button type="button" class="export-btn secondary" id="btnExportPdf" disabled>
+          <span class="export-btn-title">One PDF, all payslips</span>
+          <span class="export-btn-sub">For printing or the company archive. One page per employee, no password.</span>
         </button>
       </div>
       <button type="button" class="btn btn-ghost hidden" id="btnCancel">Cancel</button>
@@ -277,6 +285,66 @@
 
       <div class="panel-nav">
         <button type="button" class="btn" data-go="3">← Back</button>
+        <button type="button" class="btn btn-primary" data-go="5">Continue to send →</button>
+      </div>
+    </section>
+
+    <!-- ================= STEP 5: SEND ================= -->
+    <section class="panel hidden" id="panel5">
+      <div class="panel-head">
+        <div>
+          <h2>Send</h2>
+          <p class="muted">Hand each payslip to its employee using the tools you already have. Nothing is sent by this page itself.</p>
+        </div>
+      </div>
+
+      <div class="contact-summary" id="contactSummary"></div>
+
+      <div class="channel-cards" id="channelCards"></div>
+      <div class="channel-help" id="channelHelp"></div>
+
+      <details class="section" id="secMessage">
+        <summary><span class="sec-title">Message text</span><span class="sec-meta muted small">used for WhatsApp, email drafts and mail merge</span></summary>
+        <div class="section-body">
+          <div class="form-grid">
+            <label><span>Subject</span><input type="text" id="msgSubject"></label>
+            <label><span>Sender email (From)</span><input type="text" id="msgFrom" placeholder="e.g. payroll@company.com"></label>
+            <label class="wide"><span>Message</span><textarea id="msgText" rows="6"></textarea></label>
+          </div>
+          <p class="muted small">Placeholders: <code>{name}</code> <code>{period}</code> <code>{company}</code> <code>{net}</code> <code>{password_hint}</code> <code>{password_hint_ar}</code>. Preview for the first employee:</p>
+          <pre class="msg-preview" id="msgPreview"></pre>
+        </div>
+      </details>
+
+      <div class="section open-section">
+        <div class="table-head">
+          <h3 style="margin:0">Send list <span class="badge neutral" id="sendCount"></span></h3>
+          <div class="table-tools">
+            <input type="search" id="sendSearch" placeholder="Search name or ID…" aria-label="Search">
+            <label class="check"><input type="checkbox" id="hideSent"> Hide sent</label>
+          </div>
+        </div>
+        <div class="table-scroll" style="max-height:520px">
+          <table class="data" id="sendTable">
+            <thead><tr><th>Sent</th><th>ID</th><th>Name</th><th id="sendContactHead">Contact</th><th>File</th><th>Actions</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="muted small" id="sendNote"></p>
+        <div class="actions" style="margin-top:12px">
+          <button type="button" class="btn btn-small" id="btnLogCsv">Download delivery log (CSV)</button>
+          <button type="button" class="btn btn-small btn-ghost" id="btnClearSent">Clear all ticks</button>
+        </div>
+      </div>
+
+      <div class="progress hidden" id="progress5">
+        <div class="progress-bar"><div id="progressFill5"></div></div>
+        <div class="muted small" id="progressText5"></div>
+      </div>
+      <div id="sendMessage"></div>
+
+      <div class="panel-nav">
+        <button type="button" class="btn" data-go="4">← Back</button>
         <button type="button" class="btn btn-ghost" id="btnStartOver">Start over with another file</button>
       </div>
     </section>
@@ -293,6 +361,7 @@
   <script src="js/schema.js"></script>
   <script src="js/xlsx-images.js"></script>
   <script src="js/pdf.js"></script>
+  <script src="js/delivery.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
