@@ -35,7 +35,7 @@
     { key: 'countryCode', label: 'Default Country Code', example: '966', default: '966', note: 'Optional. Added to mobile numbers written without a country code (966 = Saudi Arabia).', aliases: ['country code', 'phone country code', 'dial code'] },
     { key: 'senderEmail', label: 'Sender Email', example: 'payroll@example.com', note: 'Optional. The From address used in Outlook drafts and mail-merge files.', aliases: ['from email', 'from', 'sender', 'payroll email'] },
     { key: 'messageSubject', label: 'Message Subject', example: 'Payslip {period} - {company}', default: 'Payslip {period} - {company}', note: 'Optional. Subject line for emails and first line of WhatsApp messages. Placeholders: {name} {period} {company} {net} {password_hint}', aliases: ['subject', 'email subject'] },
-    { key: 'messageText', label: 'Message Text', multiline: true, example: '', default: 'Dear {name},\n\nPlease find attached your payslip for {period}.\n\n{password_hint}\n\n{company}', note: 'Optional. Body of the email / WhatsApp message. Placeholders: {name} {period} {company} {net} {password_hint} {password_hint_ar}', aliases: ['message', 'email body', 'body', 'message body'] },
+    { key: 'messageText', label: 'Message Text', multiline: true, example: '', default: 'Dear {first_name},\n\nPlease find attached your payslip for {period}.\n\n{password_hint}\n\nBest regards', note: 'Optional. Body of the email / WhatsApp message. Placeholders: {first_name} {name} {period} {company} {net} {password_hint} {password_hint_ar}', aliases: ['message', 'email body', 'body', 'message body'] },
     { key: 'passwordRule', label: 'Password Rule', example: 'id', default: 'id', note: 'Optional. PDF password: id (National ID / Iqama number, default), id+dob (ID + birth day and month DDMM), dob (DDMMYYYY), custom (uses the "Payslip Password" column), none.', aliases: ['pdf password', 'password', 'password scheme'] },
     { key: 'logo', label: 'Logo', type: 'image', example: '', note: 'Optional. Insert your logo picture anywhere on this sheet (Insert > Pictures). The first picture on this sheet is used as the logo.', aliases: ['company logo'] },
     { key: 'stamp', label: 'Stamp / Signature', type: 'image', example: '', note: 'Optional. The second picture on this sheet is used as the stamp or signature.', aliases: ['stamp', 'signature'] }
@@ -326,18 +326,18 @@
     if (rule === 'none' || rule === 'no' || rule === 'off') return { password: '', hint: '', hintAr: '', error: null };
     if (rule === 'custom') {
       var pw = String(slip.fields.payslipPassword || '').trim();
-      return pw ? { password: pw, hint: 'PDF password: given to you by HR.', hintAr: 'كلمة مرور الملف: من الموارد البشرية.', error: null } : { password: '', hint: '', hintAr: '', error: 'no value in the "Payslip Password" column' };
+      return pw ? { password: pw, hint: 'Password: given to you by HR.', hintAr: 'كلمة المرور: من الموارد البشرية.', error: null } : { password: '', hint: '', hintAr: '', error: 'no value in the "Payslip Password" column' };
     }
     if (rule === 'dob') {
-      return ddmmyyyy ? { password: ddmmyyyy, hint: 'PDF password: your date of birth (DDMMYYYY).', hintAr: 'كلمة مرور الملف: تاريخ ميلادك (يوم شهر سنة).', error: null } : { password: '', hint: '', hintAr: '', error: 'no date of birth' };
+      return ddmmyyyy ? { password: ddmmyyyy, hint: 'Password: your date of birth (DDMMYYYY).', hintAr: 'كلمة المرور: تاريخ ميلادك (يوم شهر سنة).', error: null } : { password: '', hint: '', hintAr: '', error: 'no date of birth' };
     }
     if (rule === 'id') {
-      return id ? { password: id, hint: 'PDF password: your Iqama / National ID number.', hintAr: 'كلمة مرور الملف: رقم الإقامة / الهوية.', error: null } : { password: '', hint: '', hintAr: '', error: 'no National ID / Iqama' };
+      return id ? { password: id, hint: 'Password: your Iqama number.', hintAr: 'كلمة المرور: رقم الإقامة.', error: null } : { password: '', hint: '', hintAr: '', error: 'no National ID / Iqama' };
     }
     // default id+dob
     if (!id) return { password: '', hint: '', hintAr: '', error: 'no National ID / Iqama' };
     if (!ddmm) return { password: '', hint: '', hintAr: '', error: 'no date of birth' };
-    return { password: id + ddmm, hint: 'PDF password: your Iqama / National ID number + birth day and month (DDMM).', hintAr: 'كلمة مرور الملف: رقم الإقامة / الهوية + يوم وشهر الميلاد.', error: null };
+    return { password: id + ddmm, hint: 'Password: your Iqama number + birth day and month (DDMM).', hintAr: 'كلمة المرور: رقم الإقامة + يوم وشهر الميلاد.', error: null };
   }
 
   // {name} {period} {company} {net} {currency} {password_hint} {password_hint_ar} {employee_id}
@@ -350,6 +350,7 @@
   function messageVars(slip, settings, pw) {
     return {
       name: slip.name,
+      first_name: String(slip.name || '').trim().split(/\s+/)[0] || slip.name,
       employee_id: slip.employeeId,
       period: settings.payPeriod || '',
       company: settings.companyName || '',
@@ -590,6 +591,7 @@
         if (def.type === 'image') { found++; break; }
         found++;
         if (def.type === 'date') settings[def.key] = parseDateLike(raw);
+        else if (def.multiline) settings[def.key] = String(raw == null ? '' : raw).replace(/\r\n?/g, '\n').replace(/[ \t]+/g, ' ').replace(/ *\n */g, '\n').trim();
         else settings[def.key] = cleanText(raw);
         break;
       }
@@ -1164,7 +1166,14 @@
     return rows;
   }
 
+  // Earlier default message texts; a saved copy equal to one of these is upgraded to the current default.
+  var OLD_MESSAGE_DEFAULTS = [
+    'Dear {name}, your payslip for {period} is attached. {password_hint}\nThis document contains personal data; please do not forward it.\n\nعزيزي {name}، مرفق قسيمة راتبك لشهر {period}. {password_hint_ar}\nهذا المستند يحتوي على بيانات شخصية، يرجى عدم مشاركته.',
+    'Dear {name},\n\nPlease find attached your payslip for {period}.\n\n{password_hint}\n\n{company}'
+  ];
+
   return {
+    OLD_MESSAGE_DEFAULTS: OLD_MESSAGE_DEFAULTS,
     SHEET_SETTINGS: SHEET_SETTINGS,
     SHEET_PAYSLIPS: SHEET_PAYSLIPS,
     SETTINGS_FIELDS: SETTINGS_FIELDS,

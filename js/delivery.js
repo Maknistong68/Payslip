@@ -91,7 +91,6 @@
 
   function buildEml(opts) {
     var boundary = '----=_Payslip_' + randomToken();
-    var altBoundary = '----=_PayslipAlt_' + randomToken();
     var messageId = opts.messageId || ('<payslip-' + Schema.asciiSlug(opts.fileName || 'slip').toLowerCase() + '-' + randomToken() + '@payslip.local>');
     var fileName = opts.fileName || 'payslip.pdf';
     var lines = [
@@ -107,22 +106,13 @@
     lines.push('');
     lines.push('This is a multi-part message in MIME format.');
     lines.push('');
+    // HTML body only: Outlook's "remove extra line breaks" flattens plain-text drafts, and when both
+    // parts are present it may still build the draft from the plain one.
     lines.push('--' + boundary);
-    lines.push('Content-Type: multipart/alternative; boundary="' + altBoundary + '"');
-    lines.push('');
-    lines.push('--' + altBoundary);
-    lines.push('Content-Type: text/plain; charset="UTF-8"; format=flowed');
-    lines.push('Content-Transfer-Encoding: base64');
-    lines.push('');
-    lines.push(base64Lines(utf8Bytes(String(opts.text || '').replace(/\r?\n/g, CRLF))));
-    lines.push('');
-    lines.push('--' + altBoundary);
     lines.push('Content-Type: text/html; charset="UTF-8"');
     lines.push('Content-Transfer-Encoding: base64');
     lines.push('');
     lines.push(base64Lines(utf8Bytes(textToHtml(opts.text))));
-    lines.push('');
-    lines.push('--' + altBoundary + '--');
     lines.push('');
     lines.push('--' + boundary);
     lines.push('Content-Type: application/pdf; name="' + fileName + '"');

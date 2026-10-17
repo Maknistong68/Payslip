@@ -112,7 +112,7 @@
     base.display = PDF.mergeOptions(p.display || {});
     if (p.logo && p.logo.dataUrl) base.logo = p.logo;
     if (p.stamp && p.stamp.dataUrl) base.stamp = p.stamp;
-    if (p.company && typeof p.company === 'object') base.company = p.company;
+    if (p.company && typeof p.company === 'object') base.company = upgradeMessageText(p.company);
     if (p.columnOverrides && typeof p.columnOverrides === 'object') base.columnOverrides = p.columnOverrides;
     base.savedAt = p.savedAt || null;
     state.profile = base;
@@ -281,9 +281,22 @@
   }
 
   // Company settings: Excel values win, blanks are filled from the saved profile.
+  function currentDefault(key) {
+    var f = Schema.SETTINGS_FIELDS.filter(function (x) { return x.key === key; })[0];
+    return f && f.default != null ? f.default : '';
+  }
+
+  // Message texts saved from older versions are replaced by the current short default.
+  function upgradeMessageText(obj) {
+    if (obj && obj.messageText && Schema.OLD_MESSAGE_DEFAULTS.indexOf(String(obj.messageText).replace(/\r\n/g, '\n')) >= 0) {
+      obj.messageText = currentDefault('messageText');
+    }
+    return obj;
+  }
+
   function mergeCompany() {
-    var excel = state.parsed.settings;
-    var saved = state.profile.company || {};
+    var excel = upgradeMessageText(state.parsed.settings);
+    var saved = upgradeMessageText(state.profile.company || {});
     var out = {};
     state.companyFromExcel = {};
     Schema.SETTINGS_FIELDS.forEach(function (f) {
