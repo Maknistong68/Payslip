@@ -57,7 +57,17 @@ The steps:
    - **Send on WhatsApp** opens the chat with the right number and the message typed, and downloads the PDF to
      attach (drag it into the chat). On phones and Chrome/Edge with file sharing, *share the file to WhatsApp*
      hands the PDF over directly.
-   - **Send by email** downloads a ready Outlook email (`.eml`) with the PDF attached: open it, press Send.
+   - **Send by email** (*Open in Outlook*) works with the Outlook the user picks once on this computer
+     (changeable on the Send step):
+     - *Classic Outlook* (Windows desktop): a ready email with the PDF attached (`.eml`). A one-time hint shows
+       the browser setting *Always open files of this type* (Firefox: *Always Open Similar Files*); after that,
+       every click opens the email straight in Outlook, ready to send.
+     - *New Outlook* (Windows app): opens a new email with address, subject and message typed (`mailto:`), and
+       downloads the PDF to drag in.
+     - *Outlook on the web*: opens the compose window on outlook.office.com, typed the same way, and downloads
+       the PDF to drag in.
+     A web page cannot attach files to New Outlook or Outlook on the web, and cannot open the classic email
+     without that one-time browser setting; sending directly would need a Microsoft sign-in and API.
    - **Download** saves the single PDF.
    - **Password on the PDF**, one switch per channel: WhatsApp on (recommended), email off, downloads on; the
      password is the Iqama / National ID number by default (or Iqama + birth day and month, date of birth, or a

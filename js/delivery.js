@@ -142,6 +142,11 @@
     return 'mailto:' + encodeURIComponent(to || '') + '?subject=' + encodeURIComponent(subject || '') + '&body=' + encodeURIComponent(body || '');
   }
 
+  // Outlook on the web (work or school accounts): opens the compose window with everything typed.
+  function outlookWebLink(to, subject, body) {
+    return 'https://outlook.office.com/mail/deeplink/compose?to=' + encodeURIComponent(to || '') + '&subject=' + encodeURIComponent(subject || '') + '&body=' + encodeURIComponent(body || '');
+  }
+
   // ---- CSV -------------------------------------------------------------------
 
   function csvCell(v) {
@@ -312,6 +317,7 @@
     waLink: waLink,
     gmailComposeLink: gmailComposeLink,
     mailtoLink: mailtoLink,
+    outlookWebLink: outlookWebLink,
     toCsv: toCsv,
     manifestCsv: manifestCsv,
     mailMergeCsv: mailMergeCsv,

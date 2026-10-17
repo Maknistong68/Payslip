@@ -1613,14 +1613,114 @@
     });
   }
 
-  function sendEmail(slip) {
+  // --- email: which Outlook decides how one click works ------------------------
+  // classic: a ready email with the PDF attached (.eml; the browser can open it automatically after a
+  //          one-time setting). new / web: the compose window opens with everything typed and the PDF
+  //          is downloaded to drag in, because a web page cannot attach files to those.
+  var OUTLOOK_KINDS = {
+    classic: { name: 'Classic Outlook', button: 'Open in Outlook' },
+    'new': { name: 'New Outlook', button: 'Open in Outlook' },
+    web: { name: 'Outlook on the web', button: 'Open in Outlook on the web' }
+  };
+
+  function outlookKind() {
+    var k = Vault.prefs().outlook;
+    return OUTLOOK_KINDS[k] ? k : '';
+  }
+
+  // Calls back straight from the click (asking first if needed), so the browser still allows the
+  // download and the new tab.
+  function withOutlook(cb) {
+    var k = outlookKind();
+    if (k) { cb(k); return; }
+    askOutlook(cb);
+  }
+
+  function askOutlook(cb) {
+    var cur = outlookKind();
+    var card = function (k, title, text) {
+      return '<button type="button" class="ol-card' + (cur === k ? ' on' : '') + '" data-ol="' + k + '"><b>' + title + '</b><span>' + text + '</span></button>';
+    };
+    var m = Guide.modal({
+      className: 'outlook-pick',
+      label: 'Which Outlook do you use?',
+      html: '<h2>Which Outlook do you use?</h2><p class="muted">Asked once on this computer; change it any time on the Send step.</p>' +
+        '<div class="ol-cards">' +
+        card('classic', 'Outlook on my computer (classic)', 'The Outlook program on Windows with a File menu. Emails open ready to send, with the PDF attached.') +
+        card('new', 'New Outlook', 'The newer Outlook app for Windows (it has a "New Outlook" switch at the top). The email opens ready; you drag in the PDF.') +
+        card('web', 'Outlook in the browser', 'outlook.office.com. The email opens in a new tab, ready; you drag in the PDF.') +
+        '</div><p class="muted small">Not sure? If Outlook has a <b>File</b> menu at the top left, it is classic.</p>',
+      onClose: function (result) {
+        if (!OUTLOOK_KINDS[result]) return;
+        Vault.setPrefs({ outlook: result });
+        if (state.step === 4) renderSendSummary();
+        if (cb) cb(result);
+      }
+    });
+    m.el.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-ol]');
+      if (b) m.close(b.getAttribute('data-ol'));
+    });
+  }
+
+  function openMailto(url) {
+    var a = document.createElement('a');
+    a.href = url;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  // done(kind) runs after the email was opened (not when the user backs out).
+  function sendEmail(slip, done) {
     if (!slip.fields.email || !state.canSend) return;
     guarded(slip, function () {
-      var art = artifactFor(slip, lockOn('email'));
-      var m = messageFor(slip, 'email');
-      var eml = Delivery.buildEml({ from: state.company.senderEmail, to: slip.fields.email, subject: m.subject, text: m.text, fileName: art.fileName, pdfBytes: art.bytes });
-      downloadBlob(new Blob([eml], { type: 'message/rfc822' }), art.fileName.replace(/\.pdf$/, '.eml'));
-      markSent(slip, 'outlook', 'Outlook email downloaded');
+      withOutlook(function (kind) {
+        var art = artifactFor(slip, lockOn('email'));
+        var m = messageFor(slip, 'email');
+        if (kind === 'classic') {
+          var eml = Delivery.buildEml({ from: state.company.senderEmail, to: slip.fields.email, subject: m.subject, text: m.text, fileName: art.fileName, pdfBytes: art.bytes });
+          downloadBlob(new Blob([eml], { type: 'message/rfc822' }), art.fileName.replace(/\.pdf$/, '.eml'));
+          markSent(slip, 'outlook', 'ready Outlook email (PDF attached)');
+          if (!Vault.prefs().emlHintDone) setTimeout(showEmlHint, 700);
+        } else {
+          downloadBlob(new Blob([art.bytes], { type: 'application/pdf' }), art.fileName);
+          if (kind === 'web') window.open(Delivery.outlookWebLink(slip.fields.email, m.subject, m.text), '_blank', 'noopener');
+          else openMailto(Delivery.mailtoLink(slip.fields.email, m.subject, m.text));
+          markSent(slip, 'outlook', (kind === 'web' ? 'Outlook on the web' : 'New Outlook') + ' opened, PDF downloaded');
+        }
+        if (done) done(kind);
+      });
+    });
+  }
+
+  // One-time: let the browser open .eml files by itself, so every click lands in Outlook directly.
+  function browserName() {
+    var ua = navigator.userAgent;
+    return /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : 'your browser';
+  }
+
+  function showEmlHint() {
+    var b = browserName();
+    var menuText = b === 'Firefox' ? 'Always Open Similar Files' : 'Always open files of this type';
+    var steps = b === 'Firefox'
+      ? ['Click the <b>downloads arrow</b> at the top right of Firefox.', 'Right-click the <b>.eml</b> file.', 'Choose <b>' + menuText + '</b>.']
+      : ['Click the <b>downloads icon</b> at the top right of ' + b + '.', 'Right-click the <b>.eml</b> file (or click its <b>⋯</b>).', 'Choose <b>' + menuText + '</b>.'];
+    var m = Guide.modal({
+      className: 'eml-hint',
+      label: 'Open emails straight in Outlook',
+      html: '<div class="eh-grid"><div class="eh-stage">' + Guide.scene('emlsetting', { menu: menuText }) + '</div><div class="eh-copy">' +
+        '<span class="tour-step">One-time setting</span><h2>Open emails straight in Outlook</h2>' +
+        '<p class="muted">The email you just made is in your downloads. Tell ' + escapeHtml(b) + ' to open these files by itself, and from now on every click lands in Outlook, ready to send.</p>' +
+        '<ol class="eh-steps">' + steps.map(function (t) { return '<li>' + t + '</li>'; }).join('') + '</ol>' +
+        '<div class="actions"><button type="button" class="btn btn-primary" data-eh="done">Done</button><button type="button" class="btn btn-ghost" data-eh="later">Remind me next time</button></div></div></div>',
+      onClose: function (r) { if (r === 'done') Vault.setPrefs({ emlHintDone: true }); }
+    });
+    m.el.querySelector('.qasi') && m.el.querySelector('.qasi').setAttribute('data-mood', 'look');
+    m.el.addEventListener('click', function (e) {
+      var x = e.target.closest('[data-eh]');
+      if (x) m.close(x.getAttribute('data-eh'));
     });
   }
 
@@ -1655,6 +1755,8 @@
   }
   $('panel4').addEventListener('click', function (e) {
     if (e.target.closest('[data-profile-edit]')) { e.preventDefault(); startEdit(); }
+    if (e.target.closest('[data-outlook-change]')) askOutlook();
+    if (e.target.closest('[data-eml-hint]')) showEmlHint();
   });
 
   function refreshSendViews() {
@@ -1684,6 +1786,10 @@
         : '<button type="button" class="link" id="btnReconnect" title="After a restart the browser needs your OK to write to the folder again">reconnect the folder for the log</button>') : ''
     ].filter(Boolean).join('<i class="dot-sep"></i>');
     if ($('btnReconnect')) $('btnReconnect').addEventListener('click', reconnectFolder);
+    var ok = outlookKind();
+    $('outlookLine').innerHTML = 'Email opens in <b>' + (ok ? OUTLOOK_KINDS[ok].name : 'Outlook') + '</b>' + (ok ? '' : ' (asked on the first email)') +
+      ' · <button type="button" class="link inline" data-outlook-change>' + (ok ? 'change' : 'choose now') + '</button>' +
+      (ok === 'classic' ? ' · <button type="button" class="link inline" data-eml-hint>open emails automatically</button>' : '');
     var next = nextUnsent();
     var btn = $('btnStartSending');
     btn.innerHTML = ICONS.eye + '<span>' + (!slips.length ? 'Nothing to send' : !next ? 'Everyone is done' : sent ? 'Continue with ' + escapeHtml(next.name) : 'Start: view the first payslip') + '</span>';
@@ -1878,12 +1984,13 @@
         '<button type="button" class="btn btn-wa btn-block" data-v="wa"' + (s.fields.mobile ? dis : ' disabled') + '>' + ICONS.wa + 'Send on WhatsApp</button>' +
         '<span class="vw-sub">' + (s.fields.mobile ? '+' + escapeHtml(s.fields.mobile) + (waLocked ? ' · ' + ICONS.lock + 'locked' : ' · not locked') : 'No mobile number in the file') + '</span>' +
         (canShareFiles && s.fields.mobile ? '<button type="button" class="link vw-share" data-v="share"' + dis + '>' + ICONS.share + 'or share the file to WhatsApp</button>' : '') +
-        '<button type="button" class="btn btn-block" data-v="eml"' + (s.fields.email ? dis : ' disabled') + '>' + ICONS.mail + 'Send by email</button>' +
-        '<span class="vw-sub">' + (s.fields.email ? escapeHtml(s.fields.email) + (emLocked ? ' · ' + ICONS.lock + 'locked' : ' · not locked') : 'No email address in the file') + '</span>' +
+        '<button type="button" class="btn btn-block" data-v="eml"' + (s.fields.email ? dis : ' disabled') + '>' + ICONS.mail + (outlookKind() ? OUTLOOK_KINDS[outlookKind()].button : 'Send by email') + '</button>' +
+        '<span class="vw-sub">' + (s.fields.email ? escapeHtml(s.fields.email) + (emLocked ? ' · ' + ICONS.lock + 'locked' : ' · not locked') + (outlookKind() ? ' · ' + OUTLOOK_KINDS[outlookKind()].name + ' <button type="button" class="link inline" data-v="outlook">change</button>' : '') : 'No email address in the file') + '</span>' +
         '<button type="button" class="btn btn-ghost btn-block" data-v="pdf">' + ICONS.download + 'Download PDF</button>' +
         '</div>' +
         (justSent === 'wa' ? '<p class="vw-hint">WhatsApp is opening with the message typed. The PDF is in your Downloads: drag it into the chat, then press Send.</p>' : '') +
-        (justSent === 'eml' ? '<p class="vw-hint">Open the downloaded email (bottom of the browser). Outlook shows it ready: press Send.</p>' : '') +
+        (justSent === 'eml-classic' ? '<p class="vw-hint">' + (Vault.prefs().emlHintDone ? 'Outlook opens the email ready, with the PDF attached: press Send.' : 'The email is in your downloads: open it and Outlook shows it ready, with the PDF attached. Press Send.') + '</p>' : '') +
+        (justSent === 'eml-new' || justSent === 'eml-web' ? '<p class="vw-hint">Outlook is opening with the address, subject and message typed. The PDF is in your downloads: drag it into the email, then press Send.</p>' : '') +
         (justSent ? '<button type="button" class="btn btn-primary btn-block" data-v="nextUnsent">Next payslip →</button>' : '');
     }
 
@@ -1896,7 +2003,8 @@
       else if (v === 'next') go(1);
       else if (v === 'wa') { sendWhatsApp(s); justSent = 'wa'; show(false); }
       else if (v === 'share') { shareWhatsApp(s); }
-      else if (v === 'eml') { sendEmail(s); justSent = 'eml'; show(false); }
+      else if (v === 'eml') { sendEmail(s, function (kind) { justSent = 'eml-' + kind; show(false); }); }
+      else if (v === 'outlook') { askOutlook(function () { show(false); }); }
       else if (v === 'pdf') downloadPdf(s);
       else if (v === 'nextUnsent') {
         var n = nextUnsent(s);

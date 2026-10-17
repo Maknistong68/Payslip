@@ -250,6 +250,27 @@
         '</svg>';
     },
 
+    // the browser setting that opens .eml files by itself (opts.menu: the menu item's wording)
+    emlsetting: function (opts) {
+      var id = 'gs' + (++uid);
+      var menu = esc((opts && opts.menu) || 'Always open files of this type');
+      var T = function (x, y, size, weight, color, text, anchor) { return '<text x="' + x + '" y="' + y + '"' + (anchor ? ' text-anchor="' + anchor + '"' : '') + ' font-size="' + size + '" font-weight="' + weight + '" fill="' + color + '" font-family="Segoe UI, system-ui, sans-serif">' + text + '</text>'; };
+      return '<svg class="scene sc-eml" viewBox="0 0 360 240" aria-hidden="true">' + defs(id) +
+        '<rect x="10" y="12" width="340" height="44" rx="12" fill="#fff" stroke="' + INK + '" stroke-opacity=".14" stroke-width="1.5"/>' +
+        '<circle cx="28" cy="34" r="4" fill="#f87171"/><circle cx="41" cy="34" r="4" fill="#fbbf24"/><circle cx="54" cy="34" r="4" fill="#34d399"/>' +
+        '<rect x="70" y="24" width="200" height="20" rx="10" fill="#eef2f7"/>' + T(82, 38, 9, 600, '#64748b', 'payslips · offline') +
+        '<g class="eh-dl"><circle cx="318" cy="34" r="15" fill="#dbeafe"/><path d="M318 26v12m-5-5 5 5 5-5M311 42h14" fill="none" stroke="#1d4ed8" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></g>' +
+        '<circle class="eh-ring" cx="318" cy="34" r="15" fill="none" stroke="#2563eb" stroke-width="2.5"/>' +
+        '<g class="eh-panel"><rect x="150" y="62" width="200" height="56" rx="12" fill="#fff" stroke="' + INK + '" stroke-opacity=".14" stroke-width="1.5"/>' +
+        '<rect x="162" y="74" width="24" height="30" rx="4" fill="#1d4ed8"/><path d="M166 84l8 6 8-6M166 84h16v12h-16z" fill="none" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/>' +
+        T(194, 86, 9.5, 700, INK, 'EMP-001_2026-10.eml') + T(194, 100, 8.5, 500, '#64748b', 'Done · 214 KB') + '</g>' +
+        '<g class="eh-menu"><rect x="60" y="112" width="200" height="104" rx="12" fill="#fff" stroke="' + INK + '" stroke-opacity=".16" stroke-width="1.5"/>' +
+        T(76, 136, 10, 600, '#334155', 'Open') + T(76, 160, 10, 600, '#334155', 'Show in folder') +
+        '<rect class="eh-pick" x="66" y="172" width="188" height="28" rx="8" fill="#dbeafe"/>' + T(76, 190, 10, 800, '#1d4ed8', menu) + '</g>' +
+        '<g class="eh-cursor"><path d="M0 0v22l6-5.5 3.8 8.8 4.2-1.8-3.8-8.6h8.2z" fill="' + INK + '" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></g>' +
+        '</svg>';
+    },
+
     save: function () {
       var id = 'gs' + (++uid);
       var chip = function (cls, x, y, w, label, color) {
@@ -507,7 +528,7 @@
     savePoint: savePoint,
     confirm: confirmBox,
     toast: toast,
-    scene: function (name) { return SCENES[name] ? SCENES[name]() : ''; },
+    scene: function (name, opts) { return SCENES[name] ? SCENES[name](opts) : ''; },
     TOUR: TOUR
   };
 })(typeof self !== 'undefined' ? self : this);

@@ -426,6 +426,16 @@ var Delivery = require(path.join(__dirname, '..', 'js', 'delivery.js'));
   assert.strictEqual(Vault.timeAgo(t(0), Date.parse(t(5))), '5 min ago');
 })();
 
+// Outlook on the web: everything typed, special characters and line breaks kept.
+(function () {
+  var link = Delivery.outlookWebLink('ali@example.com', 'Payslip October 2026 - A&B Co', 'Dear Ali,\n\nPassword: your Iqama number.');
+  assert.ok(link.indexOf('https://outlook.office.com/mail/deeplink/compose?to=ali%40example.com&subject=') === 0);
+  var q = {};
+  link.split('?')[1].split('&').forEach(function (kv) { var p = kv.split('='); q[p[0]] = decodeURIComponent(p[1]); });
+  assert.strictEqual(q.subject, 'Payslip October 2026 - A&B Co');
+  assert.strictEqual(q.body, 'Dear Ali,\n\nPassword: your Iqama number.');
+})();
+
 // PWA: every file the page loads is in the service worker cache list, and the manifest icons exist.
 (function () {
   var root = path.join(__dirname, '..');
