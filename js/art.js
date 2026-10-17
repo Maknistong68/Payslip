@@ -17,8 +17,8 @@
     return '<svg class="logo-mark" width="' + size + '" height="' + size + '" viewBox="0 0 48 48" aria-hidden="true">' +
       '<defs>' +
       '<linearGradient id="' + id + 'a" x1="0" y1="0" x2="1" y2="1">' +
-      '<stop offset="0" stop-color="#1e3a8a"><animate attributeName="stop-color" values="#1e3a8a;#2563eb;#0e7490;#1e3a8a" dur="9s" repeatCount="indefinite"/></stop>' +
-      '<stop offset="1" stop-color="#0ea5e9"><animate attributeName="stop-color" values="#0ea5e9;#1e3a8a;#2563eb;#0ea5e9" dur="9s" repeatCount="indefinite"/></stop>' +
+      '<stop offset="0" stop-color="#1e3a8a"/>' +
+      '<stop offset="1" stop-color="#0ea5e9"/>' +
       '</linearGradient>' +
       '<linearGradient id="' + id + 'b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#e2e8f0"/></linearGradient>' +
       '</defs>' +
@@ -48,8 +48,8 @@
       '<linearGradient id="' + id + 'b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#e2e8f0"/></linearGradient>' +
       '<linearGradient id="' + id + 'h" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fcd34d"/><stop offset="1" stop-color="#f59e0b"/></linearGradient>' +
       '<linearGradient id="' + id + 'g" x1="0" y1="0" x2="1" y2="0">' +
-      '<stop offset="0" stop-color="#2563eb"><animate attributeName="stop-color" values="#2563eb;#0ea5e9;#0e7490;#2563eb" dur="8s" repeatCount="indefinite"/></stop>' +
-      '<stop offset="1" stop-color="#0e7490"><animate attributeName="stop-color" values="#0e7490;#2563eb;#0ea5e9;#0e7490" dur="8s" repeatCount="indefinite"/></stop>' +
+      '<stop offset="0" stop-color="#2563eb"/>' +
+      '<stop offset="1" stop-color="#0e7490"/>' +
       '</linearGradient>' +
       '</defs>' +
       '<ellipse class="q-shadow" cx="110" cy="220" rx="48" ry="7" fill="' + ink + '" opacity=".14"/>' +

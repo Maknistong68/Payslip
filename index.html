@@ -27,8 +27,7 @@
         <li data-step="1" class="active"><span class="dot">1</span><span class="lbl">Upload</span></li>
         <li data-step="2" class="disabled"><span class="dot">2</span><span class="lbl">Review</span></li>
         <li data-step="3" class="disabled"><span class="dot">3</span><span class="lbl">Design</span></li>
-        <li data-step="4" class="disabled"><span class="dot">4</span><span class="lbl">Export</span></li>
-        <li data-step="5" class="disabled"><span class="dot">5</span><span class="lbl">Send</span></li>
+        <li data-step="4" class="disabled"><span class="dot">4</span><span class="lbl">Send</span></li>
       </ol>
       <div class="top-actions">
         <button type="button" class="top-chip install-chip hidden" id="btnInstall" title="Install as an app: opens from the desktop and works offline"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/></svg><span class="lbl">Install app</span></button>
@@ -49,13 +48,13 @@
       <div class="hero">
         <div class="hero-copy">
           <h1>Salary sheet in.<br><span class="grad">Payslips out.</span></h1>
-          <p class="hero-sub">Every employee gets a clean, locked PDF in their Outlook inbox. Built for speed, runs offline, nothing leaves this computer.</p>
+          <p class="hero-sub">Every employee gets a clear payslip on WhatsApp or by email. Runs offline; nothing leaves this computer.</p>
           <div class="flowline" aria-label="How it works">
             <span class="pill"><i></i>Excel</span><span class="sep">›</span>
             <span class="pill"><i></i>Check</span><span class="sep">›</span>
-            <span class="pill"><i></i>Design</span><span class="sep">›</span>
-            <span class="pill"><i></i>Lock PDF</span><span class="sep">›</span>
-            <span class="pill"><i></i>Outlook</span>
+            <span class="pill"><i></i>View</span><span class="sep">›</span>
+            <span class="pill"><i></i>WhatsApp</span><span class="sep">›</span>
+            <span class="pill"><i></i>Email</span>
           </div>
         </div>
         <div class="hero-art"><span class="orbit" aria-hidden="true"></span><div data-art="mascot"></div></div>
@@ -86,7 +85,7 @@
             <button type="button" class="btn" id="btnSampleXlsx">Filled example</button>
           </div>
           <button type="button" class="link" id="btnLoadSample">Try with sample data <span class="arrow">→</span></button>
-          <button type="button" class="link guide-link" id="btnTour">▶ 30-second guide</button>
+          <button type="button" class="link guide-link" id="btnTour">▶ How it works</button>
         </div>
         <div class="start-card spot">
           <span class="sc-icon"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 8v4l3 2"/></svg></span>
@@ -276,43 +275,102 @@
 
       <div class="panel-nav">
         <button type="button" class="btn" data-go="2">← Back</button>
-        <button type="button" class="btn btn-primary" data-go="4">Continue to export →</button>
+        <button type="button" class="btn btn-primary" data-go="4">Continue to send →</button>
       </div>
     </section>
 
-    <!-- ================= STEP 4: EXPORT ================= -->
+    <!-- ================= STEP 4: SEND ================= -->
     <section class="panel hidden" id="panel4">
       <div class="panel-head">
         <div>
-          <h2>Export</h2>
-          <p class="muted">Generated here, on this computer.</p>
+          <h2>Send</h2>
+          <p class="muted">Look at each payslip, then send it on WhatsApp or by email.</p>
         </div>
       </div>
 
-      <div class="export-summary spot" id="exportSummary"></div>
       <div id="exportState"></div>
+      <div class="notice-bar" id="sendNotice"></div>
 
-      <div class="export-options">
-        <label class="check"><input type="checkbox" id="skipErrors" checked> Skip rows with errors (recommended)</label>
-        <label class="check"><input type="checkbox" id="protectPdfs" checked> Password on each PDF <span class="muted small" id="protectHint"></span></label>
+      <div class="send-top">
+        <div class="send-card spot">
+          <div class="send-count"><b id="sentCount">0</b> of <span id="sendTotal">0</span> sent</div>
+          <div class="send-meter"><i id="sendMeter"></i></div>
+          <div class="send-facts" id="sendFacts"></div>
+          <button type="button" class="btn btn-primary btn-xl" id="btnStartSending">Start</button>
+        </div>
+        <div class="lock-card spot">
+          <div class="lock-title"><svg viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg> Password on the PDF</div>
+          <label class="switch"><input type="checkbox" id="lockWhatsapp"><span class="sw"></span>WhatsApp <span class="badge ok">recommended</span></label>
+          <label class="switch"><input type="checkbox" id="lockEmail"><span class="sw"></span>Email</label>
+          <label class="switch"><input type="checkbox" id="lockDownload"><span class="sw"></span>Downloads</label>
+          <label class="pw-rule"><span>Password</span>
+            <select id="passwordRule">
+              <option value="id">Iqama / National ID number</option>
+              <option value="id+dob">Iqama + birth day and month</option>
+              <option value="dob">Date of birth (DDMMYYYY)</option>
+              <option value="custom">"Payslip Password" column</option>
+            </select>
+          </label>
+          <p class="muted small" id="lockNote"></p>
+        </div>
       </div>
 
-      <div class="export-buttons">
-        <button type="button" class="export-btn" id="btnExportFolder" disabled>
-          <span class="export-btn-title">Folder of PDFs</span>
-          <span class="export-btn-sub">One file per employee, written to a folder you pick. Best for sending.</span>
-        </button>
-        <button type="button" class="export-btn" id="btnExportZip" disabled>
-          <span class="export-btn-title">ZIP of PDFs</span>
-          <span class="export-btn-sub">Same files, zipped.</span>
-        </button>
-        <button type="button" class="export-btn secondary" id="btnExportPdf" disabled>
-          <span class="export-btn-title">One PDF, all payslips</span>
-          <span class="export-btn-sub">For printing or the archive. No password.</span>
-        </button>
+      <div class="section open-section spot">
+        <div class="table-head">
+          <h3 style="margin:0">Employees <span class="badge neutral" id="sendCount"></span></h3>
+          <div class="table-tools">
+            <input type="search" id="sendSearch" placeholder="Search name or ID…" aria-label="Search">
+            <select id="sendFilter" aria-label="Show">
+              <option value="all">Everyone</option>
+              <option value="todo">Not sent yet</option>
+              <option value="sent">Sent</option>
+              <option value="nocontact">No mobile or email</option>
+            </select>
+          </div>
+        </div>
+        <div class="table-scroll" style="max-height:560px">
+          <table class="data send-table" id="sendTable">
+            <thead><tr><th class="tick">Sent</th><th>Employee</th><th>Mobile / email</th><th class="acts">Actions</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="muted small" id="sendNote"></p>
       </div>
+
+      <details class="section spot" id="secMessage">
+        <summary><span class="sec-title">Message</span><span class="sec-meta muted small">subject · text · sender</span></summary>
+        <div class="section-body">
+          <div class="form-grid">
+            <label><span>Subject (email) / first line (WhatsApp)</span><input type="text" id="msgSubject"></label>
+            <label><span>Sender email (From)</span><input type="text" id="msgFrom" placeholder="e.g. payroll@company.com"></label>
+            <label class="wide"><span>Message</span><textarea id="msgText" rows="6"></textarea></label>
+          </div>
+          <p class="muted small"><code>{first_name}</code> <code>{name}</code> <code>{period}</code> <code>{company}</code> <code>{net}</code> <code>{password_hint}</code> (left out when the PDF is not locked)</p>
+          <div class="msg-preview" id="msgPreview"></div>
+        </div>
+      </details>
+
+      <details class="section spot" id="secMore">
+        <summary><span class="sec-title">More</span><span class="sec-meta muted small">download all · print · Outlook pack · records</span></summary>
+        <div class="section-body">
+          <div class="more-grid">
+            <button type="button" class="more-btn" id="btnExportFolder" data-needs-ready><b>All PDFs to a folder</b><span>One file per employee, plus the delivery log</span></button>
+            <button type="button" class="more-btn" id="btnExportZip" data-needs-ready><b>All PDFs as a ZIP</b><span>Same files, zipped</span></button>
+            <button type="button" class="more-btn" id="btnExportPdf" data-needs-ready><b>One PDF to print</b><span>All payslips, no password</span></button>
+            <button type="button" class="more-btn" id="btnRegister" data-needs-ready><b>Signature register</b><span>For payslips handed out on paper</span></button>
+            <button type="button" class="more-btn" id="btnEmlPack" data-needs-ready><b>All Outlook emails (ZIP)</b><span>Batches of 50 with a macro for Drafts</span></button>
+            <button type="button" class="more-btn" id="btnMergePack" data-needs-ready><b>Gmail / any mailbox</b><span>Thunderbird Mail Merge pack</span></button>
+          </div>
+          <label class="check"><input type="checkbox" id="skipErrors" checked> Skip rows with errors (recommended)</label>
+          <div class="actions" style="margin-top:12px">
+            <button type="button" class="btn btn-small" id="btnLogCsv">Download delivery log (CSV)</button>
+            <label class="btn btn-small btn-ghost" title="After a browser reset or on another computer: load a delivery log CSV to bring the ticks back">Restore ticks from a log<input type="file" id="logInput" accept=".csv,text/csv" hidden></label>
+            <button type="button" class="btn btn-small btn-ghost" id="btnClearSent">Clear all ticks</button>
+          </div>
+        </div>
+      </details>
+
       <button type="button" class="btn btn-ghost hidden" id="btnCancel">Cancel</button>
-
       <div class="progress hidden" id="progress">
         <div class="progress-bar"><div id="progressFill"></div></div>
         <div class="muted small" id="progressText"></div>
@@ -321,68 +379,6 @@
 
       <div class="panel-nav">
         <button type="button" class="btn" data-go="3">← Back</button>
-        <button type="button" class="btn btn-primary" data-go="5">Continue to send →</button>
-      </div>
-    </section>
-
-    <!-- ================= STEP 5: SEND ================= -->
-    <section class="panel hidden" id="panel5">
-      <div class="panel-head">
-        <div>
-          <h2>Send</h2>
-          <p class="muted">Through the tools you already have. This page sends nothing itself.</p>
-        </div>
-      </div>
-
-      <div class="contact-summary" id="contactSummary"></div>
-      <div class="notice-bar" id="sendNotice"></div>
-
-      <div class="channel-cards" id="channelCards"></div>
-      <div class="channel-help spot" id="channelHelp"></div>
-
-      <details class="section spot" id="secMessage">
-        <summary><span class="sec-title">Email message</span><span class="sec-meta muted small" id="msgMeta">subject · body · sender</span></summary>
-        <div class="section-body">
-          <div class="form-grid">
-            <label><span>Subject</span><input type="text" id="msgSubject"></label>
-            <label><span>Sender email (From)</span><input type="text" id="msgFrom" placeholder="e.g. payroll@company.com"></label>
-            <label class="wide"><span>Message</span><textarea id="msgText" rows="6"></textarea></label>
-          </div>
-          <p class="muted small"><code>{name}</code> <code>{period}</code> <code>{company}</code> <code>{net}</code> <code>{password_hint}</code> <code>{password_hint_ar}</code></p>
-          <pre class="msg-preview" id="msgPreview"></pre>
-        </div>
-      </details>
-
-      <div class="section open-section spot">
-        <div class="table-head">
-          <h3 style="margin:0">Send list <span class="badge neutral" id="sendCount"></span></h3>
-          <div class="table-tools">
-            <input type="search" id="sendSearch" placeholder="Search name or ID…" aria-label="Search">
-            <label class="check"><input type="checkbox" id="hideSent"> Hide sent</label>
-          </div>
-        </div>
-        <div class="table-scroll" style="max-height:520px">
-          <table class="data" id="sendTable">
-            <thead><tr><th>Sent</th><th>ID</th><th>Name</th><th id="sendContactHead">Contact</th><th>File</th><th>Actions</th></tr></thead>
-            <tbody></tbody>
-          </table>
-        </div>
-        <p class="muted small" id="sendNote"></p>
-        <div class="actions" style="margin-top:12px">
-          <button type="button" class="btn btn-small" id="btnLogCsv">Download delivery log (CSV)</button>
-          <label class="btn btn-small btn-ghost" title="After a browser reset or on another computer: load a delivery log CSV to bring the ticks back">Restore ticks from a log<input type="file" id="logInput" accept=".csv,text/csv" hidden></label>
-          <button type="button" class="btn btn-small btn-ghost" id="btnClearSent">Clear all ticks</button>
-        </div>
-      </div>
-
-      <div class="progress hidden" id="progress5">
-        <div class="progress-bar"><div id="progressFill5"></div></div>
-        <div class="muted small" id="progressText5"></div>
-      </div>
-      <div id="sendMessage"></div>
-
-      <div class="panel-nav">
-        <button type="button" class="btn" data-go="4">← Back</button>
         <button type="button" class="btn btn-ghost" id="btnStartOver">Start over with another file</button>
       </div>
     </section>

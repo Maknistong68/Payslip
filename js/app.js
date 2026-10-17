@@ -36,6 +36,7 @@
       stamp: null,
       company: {},
       columnOverrides: {},
+      lock: { whatsapp: true, email: false, download: true },
       channel: 'outlook',
       savedAt: null
     };
@@ -126,6 +127,7 @@
     if (p.stamp && p.stamp.dataUrl) base.stamp = p.stamp;
     if (p.company && typeof p.company === 'object') base.company = upgradeMessageText(p.company);
     if (p.columnOverrides && typeof p.columnOverrides === 'object') base.columnOverrides = p.columnOverrides;
+    if (p.lock && typeof p.lock === 'object') ['whatsapp', 'email', 'download'].forEach(function (k) { if (typeof p.lock[k] === 'boolean') base.lock[k] = p.lock[k]; });
     base.savedAt = p.savedAt || null;
     state.profile = base;
     if (!opts.silent) saveProfile();
@@ -179,7 +181,7 @@
     var prev = state.step;
     state.step = n;
     document.body.setAttribute('data-step', String(n));
-    for (var i = 1; i <= 5; i++) {
+    for (var i = 1; i <= 4; i++) {
       var panel = $('panel' + i);
       panel.classList.toggle('hidden', i !== n);
       panel.classList.remove('enter-fwd', 'enter-back');
@@ -197,8 +199,7 @@
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
     if (n === 3) schedulePreview();
-    if (n === 4) renderExportPanel();
-    if (n === 5) renderSendPanel();
+    if (n === 4) renderSendPanel();
     if (n === 1) renderWelcome();
     saveSessionState();
   }
@@ -215,10 +216,8 @@
     } else if (n === 3) {
       Art.say('design', 'Pick a look. I remember it for <b>next month</b>.');
     } else if (n === 4) {
-      Art.say('export', 'Each PDF gets locked with the employee\'s <b>Iqama number</b>.', { settle: 'idle', after: 3500 });
-    } else if (n === 5) {
-      var left = exportableSlips().filter(function (s) { return s.fields.email && !isSent(s); }).length;
-      Art.say('send', left ? 'Press <b>Next draft</b> (or Enter). Outlook opens it, you press Send. <b>' + left + '</b> to go.' : 'Everyone has their payslip. <b>Nice work!</b>');
+      var left = exportableSlips().filter(function (s) { return !isSent(s); }).length;
+      Art.say('send', left ? 'Open a payslip with <b>View</b>, check it, then send it on <b>WhatsApp</b> or by <b>email</b>. ' + left + ' to go.' : 'Everyone has their payslip.');
     }
   }
 
@@ -305,7 +304,13 @@
 
   // Paste cells straight from Excel (last resort when the file itself cannot be used).
   function readPasted(text) {
-    return XLSX.read(text, { type: 'string', FS: text.indexOf('\t') >= 0 ? '\t' : ',', cellDates: true, raw: false });
+    return Schema.readCsv(XLSX, text);
+  }
+
+  // CSV bytes: UTF-8, or the Arabic Windows code page that older Excel versions use.
+  function decodeText(buf) {
+    try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch (e) { /* not UTF-8 */ }
+    try { return new TextDecoder('windows-1256').decode(buf); } catch (e2) { return new TextDecoder().decode(buf); }
   }
 
   $('btnUsePaste').addEventListener('click', function () {
@@ -348,7 +353,7 @@
     $('loadError').innerHTML = '';
     var wb;
     try {
-      wb = XLSX.read(arrayBuffer, { type: 'array', cellDates: true, cellStyles: true });
+      wb = /\.(csv|txt)$/i.test(name || '') ? Schema.readCsv(XLSX, decodeText(arrayBuffer)) : XLSX.read(arrayBuffer, { type: 'array', cellDates: true, cellStyles: true });
     } catch (e) {
       var msg = /password|encrypt/i.test(e.message || '') ? 'This file is password protected. Open it in Excel, remove the password (File ▸ Info ▸ Protect Workbook) or Save As a new file, then try again.' : 'This file could not be opened as a spreadsheet. ' + escapeHtml(e.message || '');
       setAlert($('loadError'), msg, 'error');
@@ -362,7 +367,7 @@
   function loadWorkbookObject(wb, name, arrayBuffer, opts) {
     var restore = (opts && opts.restore) || null;
     $('loadError').innerHTML = '';
-    state.parseOptions = { sheet: 'auto', headerRow: null, includeHidden: false };
+    state.parseOptions = { sheet: 'auto', headerRow: null, includeHidden: false, supplements: {} };
     state.bankTotal = '';
     state.wb = wb;
     state.fileName = name;
@@ -371,14 +376,12 @@
     state.dirHandle = null;
     state.exportedTo = '';
     $('exportMessage').innerHTML = '';
-    $('sendMessage').innerHTML = '';
     if (restore) {
       var po = restore.parseOptions || {};
-      state.parseOptions = { sheet: typeof po.sheet === 'string' ? po.sheet : 'auto', headerRow: po.headerRow > 0 ? +po.headerRow : null, includeHidden: !!po.includeHidden };
+      state.parseOptions = { sheet: typeof po.sheet === 'string' ? po.sheet : 'auto', headerRow: po.headerRow > 0 ? +po.headerRow : null, includeHidden: !!po.includeHidden, supplements: po.supplements && typeof po.supplements === 'object' ? po.supplements : {} };
       state.bankTotal = restore.bankTotal || '';
       state.exportedTo = restore.exportedTo || '';
       if (typeof restore.skipErrors === 'boolean') $('skipErrors').checked = restore.skipErrors;
-      if (typeof restore.protectPdfs === 'boolean') $('protectPdfs').checked = restore.protectPdfs;
     }
     reparse();
     if (arrayBuffer) XlsxImages.extractImages(JSZip, arrayBuffer).then(function (images) {
@@ -390,12 +393,12 @@
       if (pick[1]) tasks.push(normalizeImage(XlsxImages.toDataUrl(pick[1]), pick[1].mime === 'image/jpeg').then(function (img) { state.excelImages.stamp = img; }, function () {}));
       return Promise.all(tasks).then(function () { renderImages(); invalidate(); scheduleBackupCheck(); });
     }).catch(function () { /* csv / xls / no pictures */ });
-    goStep(restore ? Math.min(5, Math.max(2, restore.step || 2)) : 2, { force: !!restore });
+    goStep(restore ? Math.min(4, Math.max(2, restore.step || 2)) : 2, { force: !!restore });
   }
 
   function reparse() {
     var o = state.parseOptions;
-    state.parsed = Schema.parseWorkbook(XLSX, state.wb, { overrides: state.profile.columnOverrides, sheet: o.sheet, headerRow: o.headerRow, includeHidden: o.includeHidden });
+    state.parsed = Schema.parseWorkbook(XLSX, state.wb, { overrides: state.profile.columnOverrides, sheet: o.sheet, headerRow: o.headerRow, includeHidden: o.includeHidden, supplements: o.supplements });
     mergeCompany();
     loadLog();
     invalidate();
@@ -413,12 +416,12 @@
     var bar = $('sourceBar');
     var parts = [];
     var dataSheets = p.sheets.filter(function (sh) { return sh.isData || sh.used; });
-    if (p.sheets.length > 1) {
+    if (p.sheets.length > 1 && (dataSheets.length > 1 || !(p.supplements || []).length || p.sheets.some(function (sh) { return sh.month; }))) {
       var current = p.sheetMode === 'combined' ? '__all__' : (p.sheets.filter(function (sh) { return sh.used; })[0] || {}).name;
       var opts = '';
       if (dataSheets.length > 1) opts += '<option value="__all__"' + (current === '__all__' ? ' selected' : '') + '>All sheets combined</option>';
       p.sheets.forEach(function (sh) {
-        opts += '<option value="' + escapeHtml(sh.name) + '"' + (current === sh.name ? ' selected' : '') + '>' + escapeHtml(sh.name) + ' · ' + (sh.used ? sh.employees + ' employees' : sh.rows + ' rows') + '</option>';
+        opts += '<option value="' + escapeHtml(sh.name) + '"' + (current === sh.name ? ' selected' : '') + '>' + escapeHtml(sh.name) + ' · ' + (sh.used ? sh.employees + ' employees' : sh.role && sh.role !== 'payroll' ? sh.roleLabel.toLowerCase() : sh.rows + ' rows') + '</option>';
       });
       parts.push('<label class="src-ctl"><span>Sheet</span><select id="srcSheet">' + opts + '</select></label>');
     }
@@ -435,8 +438,29 @@
     if (manual) {
       parts.push('<span class="badge info" title="Your column choices from an earlier upload or settings file">Saved column setup applied · ' + plural(manual, 'column') + (state.profile.savedAt ? ' · ' + Schema.formatDate(new Date(state.profile.savedAt)) : '') + '</span>');
     }
+    var extra = (p.supplements || []);
+    if (extra.length) {
+      parts.push('<div class="src-extra"><span class="src-lbl">Other sheets</span>' + extra.map(function (x) {
+        var what = x.money.concat(x.fields).slice(0, 3).join(', ');
+        var detail = x.matched ? (what ? what + ' · ' : '') + x.matched + ' of ' + x.total + ' matched' : x.reason;
+        var tip = x.matched ? 'Matched by ' + { id: 'employee number', nid: 'Iqama / ID number', name: 'name' }[x.keyBy] + '. ' + (x.auto ? (x.enabled ? 'On because ' : 'Off because ') + x.reason + '.' : 'Your choice.') + (x.unmatched.length ? ' Not in the payroll: ' + x.unmatched.slice(0, 6).join(', ') + (x.unmatched.length > 6 ? '…' : '') : '') : x.reason;
+        var usable = x.matched > 0 && (x.money.length || x.fields.length);
+        return '<label class="xsheet' + (x.enabled ? ' on' : '') + (usable ? '' : ' off') + '" title="' + escapeHtml(tip) + '"><input type="checkbox" data-sheet="' + escapeHtml(x.sheet) + '"' + (x.enabled ? ' checked' : '') + (usable ? '' : ' disabled') + '>' +
+          '<span class="sw"></span><b>' + escapeHtml(x.sheet) + '</b><span>' + escapeHtml(x.roleLabel) + (detail ? ' · ' + escapeHtml(detail) : '') + '</span></label>';
+      }).join('') + (function () {
+        var unused = p.sheets.filter(function (sh) { return !sh.used && (sh.role === 'summary' || sh.role === 'other') && sh.rows; });
+        return unused.length ? '<span class="muted small">Not used: ' + unused.map(function (sh) { return escapeHtml(sh.name) + ' (' + sh.roleLabel.toLowerCase() + ')'; }).join(', ') + '</span>' : '';
+      })() + '</div>');
+    }
     bar.innerHTML = parts.join('');
     bar.classList.toggle('hidden', !parts.length);
+    Array.prototype.forEach.call(bar.querySelectorAll('[data-sheet]'), function (cb) {
+      cb.addEventListener('change', function () {
+        o.supplements = Object.assign({}, o.supplements || {});
+        o.supplements[cb.getAttribute('data-sheet')] = cb.checked;
+        reparse();
+      });
+    });
     if ($('srcSheet')) $('srcSheet').addEventListener('change', function () { o.sheet = this.value; o.headerRow = null; reparse(); });
     if ($('srcHeader')) $('srcHeader').addEventListener('change', function () {
       var used = p.sheets.filter(function (sh) { return sh.used; })[0];
@@ -565,20 +589,14 @@
       { label: 'Employees', value: st.total, cls: '' },
       { label: 'Ready', value: st.ok, cls: st.ok ? 'ok' : '' },
       { label: 'Rows with errors', value: st.withErrors, cls: st.withErrors ? 'err' : '' },
-      channelEnabled('whatsapp')
-        ? { label: 'Contacts', value: '<span title="with mobile">' + st.withMobile + ' 📱</span> · <span title="with email">' + st.withEmail + ' ✉</span>', cls: contactsCls, sub: st.withNoContact ? st.withNoContact + ' with neither' : 'all reachable' }
+      true
+        ? { label: 'Mobile · email', value: st.withMobile + ' · ' + st.withEmail, cls: contactsCls, sub: st.withNoContact ? st.withNoContact + ' with neither' : 'everyone reachable' }
         : { label: 'Total net (' + escapeHtml(state.company.currency || 'SAR') + ')', value: Schema.formatMoney(st.totalNet), money: st.totalNet, cls: '', sub: st.withEmail + ' of ' + st.total + ' have an email' }
     ];
     $('summaryGrid').innerHTML = tiles.map(function (t) {
-      var num = typeof t.value === 'number' ? ' data-count="' + t.value + '"' : (t.money != null ? ' data-money="' + t.money + '"' : '');
-      return '<div class="tile spot ' + t.cls + '"><div class="tile-label">' + t.label + '</div><div class="tile-value"' + num + '>' + (typeof t.value === 'number' ? '0' : t.value) + '</div>' + (t.sub ? '<div class="muted small">' + t.sub + '</div>' : '') + '</div>';
+      var v = t.money != null ? Schema.formatMoney(t.money) : t.value;
+      return '<div class="tile ' + t.cls + '"><div class="tile-label">' + t.label + '</div><div class="tile-value">' + v + '</div>' + (t.sub ? '<div class="muted small">' + t.sub + '</div>' : '') + '</div>';
     }).join('');
-    Array.prototype.forEach.call($('summaryGrid').querySelectorAll('[data-count]'), function (el) {
-      Art.countUp(el, +el.getAttribute('data-count'), { format: function (v) { return String(Math.round(v)); } });
-    });
-    Array.prototype.forEach.call($('summaryGrid').querySelectorAll('[data-money]'), function (el) {
-      Art.countUp(el, +el.getAttribute('data-money'), { duration: 1100, format: function (v) { return Schema.formatMoney(v); } });
-    });
 
     renderReconcile();
     renderCompanyForm();
@@ -654,7 +672,7 @@
     var optionalMissing = [];
     if (!seenKeys.employeeId) optionalMissing.push('Employee ID');
     if (!seenKeys.basicSalary && hasEarning) optionalMissing.push('Basic Salary');
-    if (!seenKeys.mobile && channelEnabled('whatsapp')) optionalMissing.push('Mobile (needed for WhatsApp)');
+    if (!seenKeys.mobile) optionalMissing.push('Mobile (needed for WhatsApp)');
     if (!seenKeys.email) optionalMissing.push('Email (needed for email delivery)');
     if (!seenKeys.dob) optionalMissing.push('Date of Birth (used for the PDF password)');
 
@@ -867,7 +885,7 @@
       accent: p.accent,
       paper: p.paper,
       display: p.display,
-      channel: p.channel,
+      lock: p.lock,
       logo: effectiveImage('logo'),
       stamp: effectiveImage('stamp'),
       columnOverrides: p.columnOverrides
@@ -911,7 +929,7 @@
   }
 
   // ---------------------------------------------------------------------------
-  // PDF generation (shared by preview, export and send)
+  // PDF generation (shared by the design preview, the viewer, downloads and sending)
   // ---------------------------------------------------------------------------
   function exportableSlips() {
     if (!state.parsed) return [];
@@ -932,20 +950,25 @@
     };
   }
 
-  function protectEnabled() {
-    return $('protectPdfs').checked && String(state.company.passwordRule || 'id').toLowerCase() !== 'none';
+  // Password per channel: WhatsApp locked by default (phones get shared and seen), email open by
+  // default (it goes to a personal inbox), downloads locked. Each one can be switched.
+  var LOCK_DEFAULTS = { whatsapp: true, email: false, download: true };
+  function lockOn(channel) {
+    if (String(state.company.passwordRule || 'id').toLowerCase() === 'none') return false;
+    var l = state.profile.lock || {};
+    return typeof l[channel] === 'boolean' ? l[channel] : !!LOCK_DEFAULTS[channel];
   }
 
-  function passwordFor(slip) {
-    if (!protectEnabled()) return { password: '', hint: '', hintAr: '', error: null, off: true };
+  function passwordFor(slip, locked) {
+    if (!locked) return { password: '', hint: '', hintAr: '', error: null, off: true };
     return Schema.buildPassword(slip, state.company.passwordRule);
   }
 
-  // One employee's PDF (encrypted when enabled), cached until something changes.
-  function artifactFor(slip) {
-    var key = slip.employeeId + '|' + slip.rowNumber + '|' + (protectEnabled() ? 1 : 0);
+  // One employee's PDF, locked or open, cached until something changes.
+  function artifactFor(slip, locked) {
+    var key = slip.employeeId + '|' + slip.rowNumber + '|' + (locked ? 1 : 0);
     if (state.cache[key]) return state.cache[key];
-    var pw = passwordFor(slip);
+    var pw = passwordFor(slip, locked);
     var doc = PDF.createDoc(jsPDF, state.profile.paper, { password: pw.password });
     PDF.renderPayslip(doc, renderContext(slip));
     PDF.setMeta(doc, state.company, 'Payslip ' + slip.employeeId);
@@ -959,12 +982,21 @@
     return art;
   }
 
-  function messageFor(slip) {
-    var vars = Schema.messageVars(slip, state.company, passwordFor(slip));
+  // The message for a channel; the password line disappears when that channel's PDF is not locked.
+  function messageFor(slip, channel) {
+    var vars = Schema.messageVars(slip, state.company, passwordFor(slip, lockOn(channel)));
     return {
       subject: Schema.renderTemplate(state.company.messageSubject || 'Payslip {period} - {company}', vars),
-      text: Schema.renderTemplate(state.company.messageText || '', vars)
+      text: Schema.renderTemplate(state.company.messageText || '', vars).replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
     };
+  }
+
+  // Unlocked copy, for looking at only.
+  function previewBlob(slip) {
+    var doc = PDF.createDoc(jsPDF, state.profile.paper);
+    PDF.renderPayslip(doc, renderContext(slip));
+    PDF.setMeta(doc, state.company, 'Payslip ' + slip.employeeId);
+    return doc.output('blob');
   }
 
   function populatePreviewSelect() {
@@ -995,12 +1027,8 @@
     var idx = parseInt($('previewSelect').value, 10) || 0;
     var slip = slips[idx] || slips[0];
     try {
-      var doc = PDF.createDoc(jsPDF, state.profile.paper); // preview is never password protected
-      PDF.renderPayslip(doc, renderContext(slip));
-      PDF.setMeta(doc, state.company, 'Payslip preview');
-      var blob = doc.output('blob');
       if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
-      state.previewUrl = URL.createObjectURL(blob);
+      state.previewUrl = URL.createObjectURL(previewBlob(slip));
       frame.src = state.previewUrl + '#toolbar=0&navpanes=0&view=FitH';
       $('previewEmpty').classList.add('hidden');
     } catch (e) {
@@ -1015,82 +1043,66 @@
   });
 
   // ---------------------------------------------------------------------------
-  // Step 4: export
+  // Step 4: send. View each payslip, then send it on WhatsApp or by email.
+  // Bulk downloads, printing and records sit under "More".
   // ---------------------------------------------------------------------------
   var fsaSupported = typeof window.showDirectoryPicker === 'function';
+  var canShareFiles = (function () {
+    try {
+      return !!(navigator.canShare && navigator.canShare({ files: [new File([new Blob(['x'], { type: 'application/pdf' })], 'x.pdf', { type: 'application/pdf' })] }));
+    } catch (e) { return false; }
+  })();
 
-  function renderExportPanel() {
-    if (!state.parsed) return;
-    var slips = exportableSlips();
-    var t = PDF.TEMPLATES.filter(function (x) { return x.id === state.profile.templateId; })[0];
-    var items = [
-      ['Company', state.company.companyName || '—'],
-      ['Pay period', state.company.payPeriod || '—'],
-      ['Payslips to export', String(slips.length) + (state.parsed.stats.withErrors ? ' (' + state.parsed.stats.withErrors + ' with errors' + ($('skipErrors').checked ? ' skipped' : ' included') + ')' : '')],
-      ['Design', (t ? t.name : '') + ' · ' + state.profile.paper.toUpperCase() + (effectiveImage('logo') ? ' · logo' : ' · no logo')]
-    ];
-    $('exportSummary').innerHTML = items.map(function (it) {
-      return '<div><div class="k">' + it[0] + '</div><div class="v">' + escapeHtml(it[1]) + '</div></div>';
-    }).join('');
+  var ICONS = {
+    wa: '<svg viewBox="0 0 24 24"><path d="M20.5 11.6a8.5 8.5 0 0 1-12.6 7.4L3.5 20.5l1.6-4.2a8.5 8.5 0 1 1 15.4-4.7z"/><path d="M9 8.6c.3 2.9 2.6 5.3 5.6 5.8l1.1-1.2-1.8-.9-.8.8c-1-.5-1.9-1.3-2.4-2.4l.8-.8-.9-1.8z"/></svg>',
+    mail: '<svg viewBox="0 0 24 24"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/><path d="m3 7 9 6.5L21 7"/></svg>',
+    download: '<svg viewBox="0 0 24 24"><path d="M12 3.5v12M7 11l5 5 5-5"/><path d="M4.5 20.5h15"/></svg>',
+    eye: '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+    lock: '<svg viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg>',
+    share: '<svg viewBox="0 0 24 24"><circle cx="18" cy="5.5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="18.5" r="2.5"/><path d="m8.2 13.2 7.6 4.1M15.8 6.7l-7.6 4.1"/></svg>'
+  };
 
-    var rule = String(state.company.passwordRule || 'id');
-    var cannot = slips.filter(function (s) { return Schema.buildPassword(s, rule).error; }).length;
-    var ruleText = { 'id+dob': 'Iqama + birth day/month', id: 'Iqama / National ID number', dob: 'date of birth', custom: '"Payslip Password" column', none: 'off' }[rule.toLowerCase()] || rule;
-    $('protectHint').textContent = rule.toLowerCase() === 'none'
-      ? '(off in company settings)'
-      : '· ' + ruleText + (cannot ? ' · ' + cannot + ' row' + (cannot === 1 ? '' : 's') + ' without data stay open' : '');
-    $('protectPdfs').disabled = rule.toLowerCase() === 'none';
-    if (!fsaSupported) {
-      $('btnExportFolder').classList.add('hidden');
-    }
-    refreshExportState();
-  }
+  var CHANNEL_NAMES = { whatsapp: 'WhatsApp', outlook: 'email', email: 'email', mailmerge: 'mail merge', manual: 'marked by hand' };
 
   function refreshExportState() {
     var missing = state.parsed ? companyMissing().filter(function (f) { return f.key !== 'crNumber'; }) : [];
     var slips = exportableSlips();
-    var can = !!(state.parsed && slips.length && !missing.length && !state.exporting);
-    ['btnExportPdf', 'btnExportZip', 'btnExportFolder'].forEach(function (id) { $(id).disabled = !can; });
+    state.canSend = !!(state.parsed && slips.length && !missing.length && !state.exporting);
+    Array.prototype.forEach.call(document.querySelectorAll('[data-needs-ready]'), function (b) { b.disabled = !state.canSend; });
     var el = $('exportState');
     if (!state.parsed) { el.innerHTML = ''; return; }
     if (missing.length) {
-      setAlert(el, 'Fill in ' + missing.map(function (f) { return '<strong>' + f.label + '</strong>'; }).join(' and ') + ' first (Review → Company details).' +
+      setAlert(el, 'Fill in ' + missing.map(function (f) { return '<strong>' + f.label + '</strong>'; }).join(' and ') + ' first (Review → Company details). You can already look at the payslips.' +
         '<div class="alert-actions"><button type="button" class="btn btn-small" data-go="2">Go to Review</button></div>', 'warn');
       el.querySelector('[data-go]').addEventListener('click', function () { goStep(2); $('secCompany').open = true; });
     } else if (!slips.length) {
-      setAlert(el, 'No rows can be exported. Fix the errors in Excel or untick "Skip rows with errors".', 'warn');
-    } else if (!String(state.company.crNumber || '').trim()) {
-      setAlert(el, 'CR number is empty. Payslips can be exported, but a CR number is recommended.', 'info');
+      setAlert(el, 'No rows can be sent. Fix the errors in Excel or untick "Skip rows with errors" under More.', 'warn');
     } else {
       el.innerHTML = '';
     }
   }
 
-  $('skipErrors').addEventListener('change', function () { renderExportPanel(); saveSessionState(); });
-  $('protectPdfs').addEventListener('change', function () { state.cache = {}; renderExportPanel(); saveSessionState(); });
-
-  function setProgress(done, total, label, which) {
-    var suffix = which === 5 ? '5' : '';
-    $('progress' + suffix).classList.remove('hidden');
-    $('progressFill' + suffix).style.width = (total ? Math.round((done / total) * 100) : 0) + '%';
-    $('progressText' + suffix).textContent = label || (done + ' / ' + total);
+  function setProgress(done, total, label) {
+    $('progress').classList.remove('hidden');
+    $('progressFill').style.width = (total ? Math.round((done / total) * 100) : 0) + '%';
+    $('progressText').textContent = label || (done + ' / ' + total);
   }
 
-  function beginExport(which) {
-    Art.say('export', which === 5 ? 'Packing every draft with its locked PDF…' : 'Building and locking every PDF…');
+  function beginExport() {
+    Art.say('export', 'Building the PDFs…');
     state.exporting = true;
     state.cancelExport = false;
-    $('btnCancel').classList.toggle('hidden', which === 5);
-    $(which === 5 ? 'sendMessage' : 'exportMessage').innerHTML = '';
+    $('btnCancel').classList.remove('hidden');
+    $('exportMessage').innerHTML = '';
     refreshExportState();
   }
 
-  function endExport(which) {
+  function endExport() {
     state.exporting = false;
     $('btnCancel').classList.add('hidden');
     $('progress').classList.add('hidden');
-    $('progress5').classList.add('hidden');
     refreshExportState();
+    if (state.step === 4) renderSendSummary();
   }
 
   $('btnCancel').addEventListener('click', function () { state.cancelExport = true; });
@@ -1102,30 +1114,34 @@
   function reportError(el, e) {
     var cancelled = e && e.message === 'cancelled';
     if (e && (e.name === 'AbortError')) { el.innerHTML = ''; return; }
-    setAlert(el, cancelled ? 'Export cancelled.' : 'Failed: ' + escapeHtml(e.message), cancelled ? 'warn' : 'error');
+    setAlert(el, cancelled ? 'Cancelled.' : 'Failed: ' + escapeHtml(e.message), cancelled ? 'warn' : 'error');
   }
 
-  // Generates every exportable slip's artifact with progress; returns items [{slip, art}]
-  async function buildAll(slips, which) {
+  // Every exportable slip's PDF with progress; returns items [{slip, art}]
+  async function buildAll(slips, locked) {
     var items = [];
     for (var i = 0; i < slips.length; i++) {
       if (state.cancelExport) throw new Error('cancelled');
-      var art = artifactFor(slips[i]);
+      var art = artifactFor(slips[i], locked);
       if (!art.hash) art.hash = await sha256Hex(art.bytes);
       items.push({ slip: slips[i], art: art, fileName: art.fileName, hash: art.hash, password: art.password });
       if (i % 5 === 0 || i === slips.length - 1) {
-        setProgress(i + 1, slips.length, 'Rendering payslip ' + (i + 1) + ' of ' + slips.length + '…', which);
+        setProgress(i + 1, slips.length, 'Making payslip ' + (i + 1) + ' of ' + slips.length + '…');
         await nextTick();
       }
     }
     return items;
   }
 
+  function doneMessage(html) {
+    Art.say('celebrate', 'Done.', { settle: 'send', after: 2400 });
+    setAlert($('exportMessage'), html, 'ok');
+  }
+
   async function exportCombinedPdf() {
     var slips = exportableSlips();
     if (!slips.length) return;
-    beginExport(4);
-    var started = Date.now();
+    beginExport();
     try {
       var doc = PDF.createDoc(jsPDF, state.profile.paper);
       for (var i = 0; i < slips.length; i++) {
@@ -1133,7 +1149,7 @@
         if (i) doc.addPage();
         PDF.renderPayslip(doc, renderContext(slips[i]));
         if (i % 10 === 0 || i === slips.length - 1) {
-          setProgress(i + 1, slips.length, 'Rendering payslip ' + (i + 1) + ' of ' + slips.length + '…');
+          setProgress(i + 1, slips.length, 'Making payslip ' + (i + 1) + ' of ' + slips.length + '…');
           await nextTick();
         }
       }
@@ -1142,22 +1158,21 @@
       await nextTick();
       var blob = doc.output('blob');
       downloadBlob(blob, baseName() + '.pdf');
-      celebrateDone();
-      setAlert($('exportMessage'), '<strong>Done.</strong> ' + plural(slips.length, 'payslip') + ' in one PDF (' + (blob.size / 1024 / 1024).toFixed(1) + ' MB, ' + ((Date.now() - started) / 1000).toFixed(1) + ' s). Check your Downloads folder.', 'ok');
+      doneMessage('<strong>Done.</strong> ' + plural(slips.length, 'payslip') + ' in one PDF for printing (' + (blob.size / 1024 / 1024).toFixed(1) + ' MB, no password).');
     } catch (e) {
       reportError($('exportMessage'), e);
     } finally {
-      endExport(4);
+      endExport();
     }
   }
 
   async function exportZip() {
     var slips = exportableSlips();
     if (!slips.length) return;
-    beginExport(4);
-    var started = Date.now();
+    var locked = lockOn('download');
+    beginExport();
     try {
-      var items = await buildAll(slips, 4);
+      var items = await buildAll(slips, locked);
       var zip = new JSZip();
       var folder = zip.folder(baseName());
       items.forEach(function (it) { folder.file(it.fileName, it.art.bytes); });
@@ -1168,12 +1183,11 @@
       downloadBlob(blob, baseName() + '.zip');
       state.exportedTo = 'zip';
       saveSessionState();
-      celebrateDone();
-      setAlert($('exportMessage'), '<strong>Done.</strong> ' + plural(items.length, 'PDF file') + ' + manifest.csv in a ZIP (' + (blob.size / 1024 / 1024).toFixed(1) + ' MB, ' + ((Date.now() - started) / 1000).toFixed(1) + ' s).' + protectNote(items), 'ok');
+      doneMessage('<strong>Done.</strong> ' + plural(items.length, 'PDF file') + ' + manifest.csv in a ZIP (' + (blob.size / 1024 / 1024).toFixed(1) + ' MB).' + protectNote(items, locked));
     } catch (e) {
       reportError($('exportMessage'), e);
     } finally {
-      endExport(4);
+      endExport();
     }
   }
 
@@ -1193,14 +1207,14 @@
     } catch (e) {
       return; // user cancelled
     }
-    beginExport(4);
-    var started = Date.now();
+    var locked = lockOn('download');
+    beginExport();
     try {
       var sub = await dir.getDirectoryHandle(baseName(), { create: true });
       var items = [];
       for (var i = 0; i < slips.length; i++) {
         if (state.cancelExport) throw new Error('cancelled');
-        var art = artifactFor(slips[i]);
+        var art = artifactFor(slips[i], locked);
         if (!art.hash) art.hash = await sha256Hex(art.bytes);
         await writeToDir(sub, art.fileName, art.bytes);
         items.push({ slip: slips[i], art: art, fileName: art.fileName, hash: art.hash, password: art.password });
@@ -1216,73 +1230,96 @@
       saveSessionState();
       Vault.set('session-dir', { dir: sub, hash: state.sourceHash }).catch(function () { /* handle not storable in this browser */ });
       journalToDisk();
-      celebrateDone();
-      setAlert($('exportMessage'), '<strong>Done.</strong> ' + plural(items.length, 'PDF file') + ' + manifest.csv written to the folder <code>' + escapeHtml(baseName()) + '</code> (' + ((Date.now() - started) / 1000).toFixed(1) + ' s).' + protectNote(items) + ' <button type="button" class="btn btn-small" data-go="5" style="margin-left:8px">Continue to send →</button>', 'ok');
-      $('exportMessage').querySelector('[data-go]').addEventListener('click', function () { goStep(5); });
+      doneMessage('<strong>Done.</strong> ' + plural(items.length, 'PDF file') + ' + manifest.csv in the folder <code>' + escapeHtml(baseName()) + '</code>.' + protectNote(items, locked) + ' The delivery log is kept in the same folder from now on.');
     } catch (e) {
       reportError($('exportMessage'), e);
     } finally {
-      endExport(4);
+      endExport();
     }
   }
 
-  function celebrateDone() {
-    Art.confetti();
-    Art.say('celebrate', state.step === 5 ? 'Pack ready! Open <b>READ ME</b> inside the ZIP.' : 'All PDFs are ready. <b>Next: Send.</b>', { settle: state.step === 5 ? 'send' : 'idle', after: 3200 });
-  }
-
-  function protectNote(items) {
-    if (!protectEnabled()) return ' Files are not password protected.';
+  function protectNote(items, locked) {
+    if (!locked) return ' Files are not password protected.';
     var without = items.filter(function (it) { return !it.art.password.password; }).length;
     return ' Each file is password protected' + (without ? ' except ' + without + ' without the needed data' : '') + '.';
+  }
+
+  async function downloadEmlPack() {
+    var slips = exportableSlips().filter(function (s) { return s.fields.email; });
+    if (!slips.length) { setAlert($('exportMessage'), 'No employee has an email address in the file.', 'warn'); return; }
+    beginExport();
+    try {
+      var items = await buildAll(slips, lockOn('email'));
+      var zip = new JSZip();
+      var root = zip.folder(baseName() + ' - Outlook drafts');
+      items.forEach(function (it, i) {
+        var m = messageFor(it.slip, 'email');
+        var eml = Delivery.buildEml({ from: state.company.senderEmail, to: it.slip.fields.email, subject: m.subject, text: m.text, fileName: it.fileName, pdfBytes: it.art.bytes });
+        root.folder('batch-' + ('0' + (Math.floor(i / EML_BATCH) + 1)).slice(-2)).file(it.fileName.replace(/\.pdf$/, '.eml'), eml);
+      });
+      var pdfs = root.folder('pdf');
+      items.forEach(function (it) { pdfs.file(it.fileName, it.art.bytes); });
+      pdfs.file('manifest.csv', Delivery.manifestCsv(items, state.company));
+      pdfs.file('OutlookDrafts.bas', Delivery.outlookVbaModule(state.company));
+      root.file('READ ME - how to send.html', Delivery.outlookGuideHtml(state.company, EML_BATCH));
+      setProgress(1, 1, 'Packing ZIP…');
+      await nextTick();
+      var blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
+      downloadBlob(blob, baseName() + ' - Outlook drafts.zip');
+      doneMessage('<strong>Done.</strong> ' + plural(items.length, 'draft') + ' in ' + Math.ceil(items.length / EML_BATCH) + ' batch folder(s), plus the PDFs, manifest and macro. Open "READ ME - how to send.html" first.');
+    } catch (e) {
+      reportError($('exportMessage'), e);
+    } finally {
+      endExport();
+    }
+  }
+
+  async function downloadMergePack() {
+    var all = exportableSlips();
+    var slips = all.filter(function (s) { return s.fields.email; });
+    if (!slips.length) { setAlert($('exportMessage'), 'No employee has an email address in the file.', 'warn'); return; }
+    beginExport();
+    try {
+      var items = await buildAll(slips, lockOn('email'));
+      items.forEach(function (it) {
+        var m = messageFor(it.slip, 'email');
+        it.subject = m.subject;
+        it.body = m.text;
+      });
+      var zip = new JSZip();
+      var root = zip.folder(baseName() + ' - Mail Merge');
+      items.forEach(function (it) { root.file(it.fileName, it.art.bytes); });
+      root.file('mailmerge.csv', Delivery.mailMergeCsv(items, state.company));
+      root.file('manifest.csv', Delivery.manifestCsv(items, state.company));
+      root.file('READ ME - how to send.html', Delivery.mailMergeGuideHtml(state.company, { withEmail: items.length, withoutEmail: all.length - items.length }));
+      setProgress(1, 1, 'Packing ZIP…');
+      await nextTick();
+      var blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
+      downloadBlob(blob, baseName() + ' - Mail Merge.zip');
+      doneMessage('<strong>Done.</strong> Mail Merge pack with ' + plural(items.length, 'PDF') + ', mailmerge.csv and the guide. Open "READ ME - how to send.html" first.');
+    } catch (e) {
+      reportError($('exportMessage'), e);
+    } finally {
+      endExport();
+    }
+  }
+
+  function downloadRegister() {
+    var slips = exportableSlips();
+    var doc = PDF.createDoc(jsPDF, state.profile.paper);
+    PDF.renderRegister(doc, { settings: state.company, slips: slips });
+    PDF.setMeta(doc, state.company, 'Acknowledgement register');
+    downloadBlob(doc.output('blob'), baseName() + ' - Acknowledgement register.pdf');
   }
 
   $('btnExportPdf').addEventListener('click', exportCombinedPdf);
   $('btnExportZip').addEventListener('click', exportZip);
   $('btnExportFolder').addEventListener('click', exportFolder);
-
-  // ---------------------------------------------------------------------------
-  // Step 5: send
-  // ---------------------------------------------------------------------------
-  var CHANNELS = [
-    { id: 'whatsapp', name: 'WhatsApp', sub: 'WhatsApp Desktop or the phone', contact: 'mobile' },
-    { id: 'outlook', name: 'Outlook (Windows)', sub: 'Ready drafts for classic Outlook', contact: 'email' },
-    { id: 'mailmerge', name: 'Gmail / any mailbox', sub: 'Mail-merge pack, zero clicks per employee', contact: 'email' },
-    { id: 'print', name: 'Print & sign', sub: 'Paper hand-out with a signature register', contact: 'none' }
-  ];
-
-  var canShareFiles = (function () {
-    try {
-      return !!(navigator.canShare && navigator.canShare({ files: [new File([new Blob(['x'], { type: 'application/pdf' })], 'x.pdf', { type: 'application/pdf' })] }));
-    } catch (e) { return false; }
-  })();
-
-  // Outlook is the only visible channel for now. The others stay in the code: open the page with
-  // ?channels=all (or ?channels=outlook,whatsapp) to bring them back; the choice is remembered.
-  var ENABLED_CHANNELS = (function () {
-    var v = null;
-    try {
-      var m = location.search.match(/[?&]channels=([^&]+)/);
-      if (m) { v = decodeURIComponent(m[1]); localStorage.setItem('payslip-channels', v); }
-      else v = localStorage.getItem('payslip-channels');
-    } catch (e) { /* ignore */ }
-    if (v === 'all') return CHANNELS.map(function (c) { return c.id; });
-    var list = (v || 'outlook').split(',').filter(function (id) { return CHANNELS.some(function (c) { return c.id === id; }); });
-    return list.length ? list : ['outlook'];
-  })();
-
-  function channelEnabled(id) {
-    return ENABLED_CHANNELS.indexOf(id) >= 0;
-  }
-
-  function visibleChannels() {
-    return CHANNELS.filter(function (c) { return channelEnabled(c.id); });
-  }
-
-  function currentChannel() {
-    var vis = visibleChannels();
-    return vis.filter(function (c) { return c.id === state.profile.channel; })[0] || vis[0];
-  }
+  $('btnEmlPack').addEventListener('click', downloadEmlPack);
+  $('btnMergePack').addEventListener('click', downloadMergePack);
+  $('btnRegister').addEventListener('click', downloadRegister);
+  if (!fsaSupported) $('btnExportFolder').classList.add('hidden');
+  $('skipErrors').addEventListener('change', function () { renderSendPanel(); saveSessionState(); });
 
   function logKey() {
     return LOG_KEY_PREFIX + Schema.asciiSlug(state.company.companyName || 'company').toLowerCase() + '-' + Schema.periodSlug(state.company.payPeriod, state.company.periodStart);
@@ -1330,16 +1367,6 @@
     return !!state.sent[slip.employeeId];
   }
 
-  function refreshSendViews() {
-    if (!state.parsed) return;
-    if (state.step === 5) {
-      renderSendList();
-      renderSummaryChips();
-      updateNextMeter();
-      renderSendNotice();
-    }
-  }
-
   // Company name or period edited while sending: the ticks follow (after typing stops).
   var rekeyTimer = null;
   function scheduleRekey() {
@@ -1367,7 +1394,7 @@
       var check = dir.queryPermission ? dir.queryPermission({ mode: 'readwrite' }) : Promise.resolve('granted');
       check.then(function (perm) {
         state.dirWritable = perm === 'granted';
-        if (!state.dirWritable) { renderSummaryChips(); return; }
+        if (!state.dirWritable) { refreshSendViews(); return; }
         return writeToDir(dir, 'delivery-log.csv', Delivery.deliveryLogCsv(state.log));
       }).catch(function () { state.dirWritable = false; });
     }, 400);
@@ -1382,7 +1409,7 @@
         journalToDisk();
         Guide.toast({ kind: 'ok', html: 'Folder reconnected. Every tick is written to <b>delivery-log.csv</b> again.' });
       }
-      renderSummaryChips();
+      refreshSendViews();
     }).catch(function () { /* refused */ });
   }
 
@@ -1407,8 +1434,10 @@
     });
   }
 
+
   function markSent(slip, channel, note) {
-    var art = state.cache[Object.keys(state.cache).filter(function (k) { return k.indexOf(slip.employeeId + '|') === 0; })[0]];
+    var locked = channel === 'whatsapp' ? lockOn('whatsapp') : lockOn('email');
+    var art = state.cache[slip.employeeId + '|' + slip.rowNumber + '|' + (locked ? 1 : 0)];
     addLogEntry({
       action: 'sent',
       employeeId: slip.employeeId,
@@ -1419,176 +1448,194 @@
       hash: art ? art.hash : '',
       note: note || ''
     });
-    renderSendList();
-    renderSummaryChips();
-    updateNextMeter();
+    refreshSendViews();
     var row = $('sendTable').querySelector('tr[data-emp="' + cssEscape(slip.employeeId) + '"]');
     if (row) { row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash'); }
-    var targets = exportableSlips().filter(function (s) { return currentChannel().contact === 'email' ? s.fields.email : true; });
-    if (targets.length && targets.every(isSent)) {
-      Art.confetti();
-      Art.say('celebrate', 'Done! <b>' + targets.length + ' payslips</b> delivered. Download the delivery log for your records.', { settle: 'send', after: 4000 });
+    var all = exportableSlips();
+    if (all.length && all.every(isSent)) {
+      Art.say('celebrate', 'Everyone has their payslip. Download the <b>delivery log</b> under More for your records.', { settle: 'send', after: 4000 });
     }
+  }
+
+  function unmarkSent(slip) {
+    addLogEntry({ action: 'undo', employeeId: slip.employeeId, name: slip.name, channel: 'manual', note: 'tick removed' });
+    refreshSendViews();
   }
 
   function cssEscape(v) {
     return String(v).replace(/["\\]/g, '\\$&');
   }
 
-  // Downloads the next unsent Outlook draft (button or Enter key).
-  function nextDraft() {
-    var next = exportableSlips().filter(function (s) { return s.fields.email && !isSent(s); })[0];
-    if (!next) {
-      Art.say('celebrate', 'Nobody left. <b>Everyone has a draft.</b>');
-      return;
+  function sentText(slip) {
+    var e = state.sent[slip.employeeId];
+    if (!e) return '';
+    var d = new Date(e.timestamp);
+    return 'Sent ' + (CHANNEL_NAMES[e.channel] && e.channel !== 'manual' ? 'by ' + CHANNEL_NAMES[e.channel] : '(' + (CHANNEL_NAMES[e.channel] || e.channel) + ')') + ', ' +
+      d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) + ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function nextUnsent(after) {
+    var slips = exportableSlips();
+    var start = after ? slips.indexOf(after) + 1 : 0;
+    for (var k = 0; k < slips.length; k++) {
+      var s = slips[(start + k) % slips.length];
+      if (!isSent(s)) return s;
     }
-    downloadDraft(next);
+    return null;
   }
 
-  function downloadDraft(slip) {
-    var a1 = artifactFor(slip);
-    var m1 = messageFor(slip);
-    var eml = Delivery.buildEml({ from: state.company.senderEmail, to: slip.fields.email, subject: m1.subject, text: m1.text, fileName: a1.fileName, pdfBytes: a1.bytes });
-    downloadBlob(new Blob([eml], { type: 'message/rfc822' }), a1.fileName.replace(/\.pdf$/, '.eml'));
-    markSent(slip, 'outlook', 'draft downloaded');
+  // --- the three ways out: WhatsApp, email, download ---------------------------
+  // Already-sent people get a question first (maybe sent before a refresh or from another tab).
+  function guarded(slip, action) {
+    if (!isSent(slip)) { action(); return; }
+    confirmResend(slip).then(function (yes) { if (yes) action(); });
   }
 
-  function updateNextMeter() {
-    if (!$('nextMeter')) return;
-    var all = exportableSlips().filter(function (s) { return s.fields.email; });
-    var done = all.filter(isSent).length;
-    $('nextMeter').style.width = (all.length ? Math.round(done / all.length * 100) : 0) + '%';
-    $('nextCount').textContent = all.length ? done + ' of ' + all.length + ' drafted' : 'No employee has an email address in the file';
-    $('btnNextDraft').disabled = !all.length || done === all.length;
+  function sendWhatsApp(slip) {
+    if (!slip.fields.mobile || !state.canSend) return;
+    guarded(slip, function () {
+      var locked = lockOn('whatsapp');
+      var art = artifactFor(slip, locked);
+      var m = messageFor(slip, 'whatsapp');
+      // the chat opens with the right person and the message typed; the PDF lands in Downloads to attach
+      window.open(Delivery.waLink(slip.fields.mobile, m.subject + '\n\n' + m.text), '_blank', 'noopener');
+      downloadBlob(new Blob([art.bytes], { type: 'application/pdf' }), art.fileName);
+      markSent(slip, 'whatsapp', (locked ? 'locked ' : '') + 'PDF downloaded, chat opened');
+    });
   }
 
-  document.addEventListener('keydown', function (e) {
-    if (state.step !== 5 || e.key !== 'Enter' || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
-    var t = e.target;
-    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.tagName === 'BUTTON' || t.tagName === 'A' || t.isContentEditable)) return;
-    if (currentChannel().id !== 'outlook' || !$('btnNextDraft') || $('btnNextDraft').disabled) return;
-    e.preventDefault();
-    nextDraft();
-  });
-
-  function unmarkSent(slip) {
-    addLogEntry({ action: 'undo', employeeId: slip.employeeId, name: slip.name, channel: currentChannel().id, note: 'tick removed' });
-    renderSendList();
-    renderSummaryChips();
-    updateNextMeter();
-  }
-
-  function renderSummaryChips() {
-    var slips = exportableSlips();
-    var sent = slips.filter(isSent).length;
-    $('contactSummary').innerHTML = [
-      '<span class="chip"><strong>' + slips.length + '</strong> payslips</span>',
-      channelEnabled('whatsapp') ? '<span class="chip"><strong>' + slips.filter(function (s) { return s.fields.mobile; }).length + '</strong> with mobile</span>' : '',
-      '<span class="chip"><strong>' + slips.filter(function (s) { return s.fields.email; }).length + '</strong> with email</span>',
-      '<span class="chip"><strong>' + sent + '</strong> marked sent</span>',
-      state.exportedTo ? '<span class="chip ok">PDFs exported</span>' : '<span class="chip warn">PDFs not exported yet</span>',
-      state.dirHandle ? (state.dirWritable ? '<span class="chip ok" title="Every tick is also written to delivery-log.csv in the export folder">Log saved in folder</span>'
-        : '<button type="button" class="chip warn" id="btnReconnect" title="After a restart the browser needs your OK to write to the folder again">Reconnect folder for the log</button>') : ''
-    ].join('');
-    if ($('btnReconnect')) $('btnReconnect').addEventListener('click', reconnectFolder);
-  }
-
-  function renderSendPanel() {
-    if (!state.parsed) return;
-    var slips = exportableSlips();
-    renderSummaryChips();
-    renderSendNotice();
-    $('channelCards').classList.toggle('hidden', visibleChannels().length < 2);
-    $('channelCards').innerHTML = visibleChannels().map(function (c) {
-      var count = c.contact === 'mobile' ? slips.filter(function (s) { return s.fields.mobile; }).length
-        : c.contact === 'email' ? slips.filter(function (s) { return s.fields.email; }).length : slips.length;
-      return '<button type="button" class="channel-card' + (c.id === state.profile.channel ? ' active' : '') + '" data-id="' + c.id + '">' +
-        '<span class="ch-name">' + escapeHtml(c.name) + '</span><span class="ch-sub">' + escapeHtml(c.sub) + '</span>' +
-        '<span class="ch-count">' + count + ' of ' + slips.length + ' reachable</span></button>';
-    }).join('');
-    Array.prototype.forEach.call($('channelCards').querySelectorAll('.channel-card'), function (btn) {
-      btn.addEventListener('click', function () {
-        state.profile.channel = btn.getAttribute('data-id');
-        saveProfile();
-        renderSendPanel();
+  function shareWhatsApp(slip) {
+    if (!state.canSend) return;
+    guarded(slip, function () {
+      var art = artifactFor(slip, lockOn('whatsapp'));
+      var m = messageFor(slip, 'whatsapp');
+      var file = new File([art.bytes], art.fileName, { type: 'application/pdf' });
+      navigator.share({ files: [file], title: m.subject, text: m.subject + '\n\n' + m.text }).then(function () {
+        markSent(slip, 'whatsapp', 'file shared');
+      }).catch(function (err) {
+        if (err && err.name !== 'AbortError') Guide.toast({ kind: 'warn', html: 'Sharing did not work (' + escapeHtml(err.message) + '). Use "Send on WhatsApp" instead.' });
       });
     });
-    $('msgMeta').textContent = visibleChannels().length > 1 ? 'WhatsApp · email · mail merge' : 'subject · body · sender';
+  }
+
+  function sendEmail(slip) {
+    if (!slip.fields.email || !state.canSend) return;
+    guarded(slip, function () {
+      var art = artifactFor(slip, lockOn('email'));
+      var m = messageFor(slip, 'email');
+      var eml = Delivery.buildEml({ from: state.company.senderEmail, to: slip.fields.email, subject: m.subject, text: m.text, fileName: art.fileName, pdfBytes: art.bytes });
+      downloadBlob(new Blob([eml], { type: 'message/rfc822' }), art.fileName.replace(/\.pdf$/, '.eml'));
+      markSent(slip, 'outlook', 'Outlook email downloaded');
+    });
+  }
+
+  function downloadPdf(slip) {
+    var art = artifactFor(slip, lockOn('download'));
+    downloadBlob(new Blob([art.bytes], { type: 'application/pdf' }), art.fileName);
+  }
+
+  function confirmResend(slip) {
+    return Guide.confirm({
+      title: 'Already sent',
+      html: '<b>' + escapeHtml(slip.name) + '</b>: ' + escapeHtml(sentText(slip).replace(/^Sent/, 'sent')) + '. Sending again means a second message for this person.',
+      ok: 'Send again', cancel: 'Keep one', mood: 'look'
+    });
+  }
+
+  // --- panel ----------------------------------------------------------------
+  function renderSendPanel() {
+    if (!state.parsed) return;
+    refreshExportState();
+    renderLockCard();
+    renderSendSummary();
+    renderSendNotice();
+    renderSendList();
     $('msgSubject').value = state.company.messageSubject || '';
     $('msgFrom').value = state.company.senderEmail || '';
     $('msgText').value = state.company.messageText || '';
-    renderChannelHelp();
     renderMessagePreview();
-    renderSendList();
   }
 
-  var ICONS = {
-    chat: '<svg viewBox="0 0 24 24"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.6 8.6 0 0 1-3.7-.8L3 21l1.9-5.1A8.4 8.4 0 0 1 3 11.5a8.4 8.4 0 0 1 9-8.4 8.4 8.4 0 0 1 9 8.4z"/></svg>',
-    clip: '<svg viewBox="0 0 24 24"><path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/></svg>',
-    send: '<svg viewBox="0 0 24 24"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>',
-    download: '<svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>',
-    click: '<svg viewBox="0 0 24 24"><path d="m9 9 5 12 1.8-5.2L21 14z"/><path d="M7.2 2.2 8 5.1"/><path d="m5.1 8-2.9-.8"/><path d="M14 4.1 12 6"/><path d="m6 12-1.9 2"/></svg>',
-    mail: '<svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 7L2 7"/></svg>',
-    printer: '<svg viewBox="0 0 24 24"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>',
-    hand: '<svg viewBox="0 0 24 24"><path d="M18 11V6a2 2 0 0 0-4 0v5"/><path d="M14 10V4a2 2 0 0 0-4 0v2"/><path d="M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.9-5.9-2.5L2.7 15.3a2 2 0 0 1 3-2.6L6 14"/></svg>',
-    pen: '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
-    share: '<svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4"/><path d="m15.4 6.5-6.8 4"/></svg>',
-    folder: '<svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>'
-  };
-
-  function flowHtml(steps, extra) {
-    return '<div class="flow">' + steps.map(function (st, i) {
-      return '<div class="flow-step"><span class="flow-icon">' + ICONS[st.icon] + '<span class="flow-num">' + (i + 1) + '</span></span><span class="flow-title">' + escapeHtml(st.title) + '</span><span class="flow-sub">' + escapeHtml(st.sub || '') + '</span></div>';
-    }).join('<span class="flow-arrow" aria-hidden="true">›</span>') + '</div>' + (extra || '');
-  }
-
-  function renderChannelHelp() {
-    var ch = currentChannel();
-    var html = '';
-    var where = state.exportedTo ? 'from the export folder' : 'export the PDFs first';
-    if (ch.id === 'whatsapp') {
-      html = flowHtml([
-        canShareFiles ? { icon: 'share', title: 'Share PDF', sub: 'pick WhatsApp + contact' } : { icon: 'chat', title: 'Open chat', sub: 'message pre-typed' },
-        canShareFiles ? { icon: 'chat', title: 'Or Open chat', sub: 'then drag the PDF' } : { icon: 'clip', title: 'Attach the PDF', sub: where },
-        { icon: 'send', title: 'Send', sub: 'row ticks itself' }
-      ], '<p class="flow-note">Save contacts first · pause every 50 · stop if WhatsApp says "restricted"' + (/Mac/.test(navigator.platform) ? ' · on Mac use the + button, not drag-and-drop' : '') + '</p>');
-    } else if (ch.id === 'outlook') {
-      html = '<div class="ch-hero"><span class="ch-logo">' + ICONS.mail + '</span><div><h3>Send with Outlook</h3><p>Every draft opens ready: address, subject, message and the locked PDF.</p></div></div>' +
-        flowHtml([
-          { icon: 'download', title: 'Next draft', sub: 'one click or Enter' },
-          { icon: 'click', title: 'Open it', sub: 'classic Outlook, Windows' },
-          { icon: 'send', title: 'Send', sub: 'row ticks itself' }
-        ]) +
-        '<div class="next-wrap"><button type="button" class="btn btn-primary btn-xl" id="btnNextDraft">Next draft <kbd>Enter</kbd></button>' +
-        '<div class="next-meter"><i id="nextMeter"></i></div><div class="next-count" id="nextCount"></div></div>' +
-        '<div class="flow-actions"><button type="button" class="btn btn-small" id="btnEmlPack">All drafts at once (ZIP)</button><span class="muted small">batches of ' + EML_BATCH + ' + macro for Drafts · Microsoft 365 sends ≈30 per minute</span></div>';
-    } else if (ch.id === 'mailmerge') {
-      html = flowHtml([
-        { icon: 'download', title: 'Pack', sub: 'PDFs + CSV + guide' },
-        { icon: 'mail', title: 'Thunderbird', sub: 'free, any mailbox' },
-        { icon: 'send', title: 'Send all', sub: 'zero clicks per employee' }
-      ], '<div class="flow-actions"><button type="button" class="btn btn-primary" id="btnMergePack">Mail Merge pack</button><span class="muted small">Gmail 500/day · Workspace 2,000 · M365 ≈30/min · no install? use Gmail compose per row</span></div>');
-    } else {
-      html = flowHtml([
-        { icon: 'printer', title: 'Print', sub: 'combined PDF (Export)' },
-        { icon: 'hand', title: 'Hand out', sub: 'folded, by supervisor' },
-        { icon: 'pen', title: 'Sign', sub: 'register = proof' }
-      ], '<div class="flow-actions"><button type="button" class="btn btn-primary" id="btnRegister">Acknowledgement register</button></div>');
+  function refreshSendViews() {
+    if (!state.parsed) return;
+    if (state.step === 4) {
+      renderSendSummary();
+      renderSendList();
+      renderSendNotice();
     }
-    $('channelHelp').innerHTML = html;
-    if ($('btnEmlPack')) $('btnEmlPack').addEventListener('click', downloadEmlPack);
-    if ($('btnNextDraft')) $('btnNextDraft').addEventListener('click', nextDraft);
-    updateNextMeter();
-    if ($('btnMergePack')) $('btnMergePack').addEventListener('click', downloadMergePack);
-    if ($('btnRegister')) $('btnRegister').addEventListener('click', downloadRegister);
-    $('sendContactHead').textContent = ch.contact === 'mobile' ? 'Mobile' : ch.contact === 'email' ? 'Email' : 'Department';
+    if (viewer) viewer.refresh();
   }
+
+  function renderSendSummary() {
+    var slips = exportableSlips();
+    var sent = slips.filter(isSent).length;
+    var mob = slips.filter(function (s) { return s.fields.mobile; }).length;
+    var mail = slips.filter(function (s) { return s.fields.email; }).length;
+    var none = slips.filter(function (s) { return !s.fields.mobile && !s.fields.email; }).length;
+    $('sentCount').textContent = sent;
+    $('sendTotal').textContent = slips.length;
+    $('sendMeter').style.width = (slips.length ? Math.round(sent / slips.length * 100) : 0) + '%';
+    $('sendFacts').innerHTML = [
+      '<span><b>' + mob + '</b> with a mobile</span>',
+      '<span><b>' + mail + '</b> with an email</span>',
+      none ? '<span class="warn"><b>' + none + '</b> with neither (download or print)</span>' : '',
+      state.dirHandle ? (state.dirWritable ? '<span class="ok" title="Every tick is also written to delivery-log.csv in the export folder">log saved in your folder</span>'
+        : '<button type="button" class="link" id="btnReconnect" title="After a restart the browser needs your OK to write to the folder again">reconnect the folder for the log</button>') : ''
+    ].filter(Boolean).join('<i class="dot-sep"></i>');
+    if ($('btnReconnect')) $('btnReconnect').addEventListener('click', reconnectFolder);
+    var next = nextUnsent();
+    var btn = $('btnStartSending');
+    btn.innerHTML = ICONS.eye + '<span>' + (!slips.length ? 'Nothing to send' : !next ? 'Everyone is done' : sent ? 'Continue with ' + escapeHtml(next.name) : 'Start: view the first payslip') + '</span>';
+    btn.disabled = !next;
+  }
+
+  function renderLockCard() {
+    var rule = String(state.company.passwordRule || 'id').toLowerCase();
+    var none = rule === 'none';
+    $('lockWhatsapp').checked = lockOn('whatsapp');
+    $('lockEmail').checked = lockOn('email');
+    $('lockDownload').checked = lockOn('download');
+    ['lockWhatsapp', 'lockEmail', 'lockDownload'].forEach(function (id) { $(id).disabled = none; });
+    $('passwordRule').value = ['id', 'id+dob', 'dob', 'custom'].indexOf(rule) >= 0 ? rule : 'id';
+    $('passwordRule').disabled = none;
+    var ruleText = { 'id+dob': 'Iqama number or date of birth', id: 'Iqama / National ID number', dob: 'date of birth', custom: 'password column' }[rule] || 'Iqama / National ID number';
+    var cannot = exportableSlips().filter(function (s) { return Schema.buildPassword(s, rule).error; }).length;
+    var notes = [];
+    if (none) notes.push('The Settings sheet says Password Rule "none", so no PDF is locked.');
+    else {
+      if (!lockOn('whatsapp')) notes.push('<span class="warn">WhatsApp PDFs are not locked: anyone holding the phone can open them.</span>');
+      if (cannot && (lockOn('whatsapp') || lockOn('email') || lockOn('download'))) notes.push(plural(cannot, 'employee has', 'employees have') + ' no ' + ruleText + ' in the file; their PDFs stay open.');
+      if (!notes.length) notes.push('Locked messages tell the employee the password.');
+    }
+    $('lockNote').innerHTML = notes.join(' ');
+  }
+
+  function setLock(channel, on) {
+    state.profile.lock = Object.assign({}, LOCK_DEFAULTS, state.profile.lock || {});
+    state.profile.lock[channel] = on;
+    saveProfile();
+    state.cache = {};
+    renderLockCard();
+    renderMessagePreview();
+  }
+  $('lockWhatsapp').addEventListener('change', function () { setLock('whatsapp', this.checked); });
+  $('lockEmail').addEventListener('change', function () { setLock('email', this.checked); });
+  $('lockDownload').addEventListener('change', function () { setLock('download', this.checked); });
+  $('passwordRule').addEventListener('change', function () {
+    setCompanyValue('passwordRule', this.value);
+    state.cache = {};
+    renderLockCard();
+    renderMessagePreview();
+  });
 
   function renderMessagePreview() {
     var slips = exportableSlips();
-    if (!slips.length) { $('msgPreview').textContent = ''; return; }
-    var m = messageFor(slips[0]);
-    $('msgPreview').innerHTML = '<span class="subj">' + escapeHtml(m.subject) + '</span>' + escapeHtml(m.text);
+    if (!slips.length) { $('msgPreview').innerHTML = ''; return; }
+    var wa = messageFor(slips[0], 'whatsapp');
+    var em = messageFor(slips[0], 'email');
+    $('msgPreview').innerHTML =
+      '<div class="msg-card"><span class="msg-k">' + ICONS.wa + 'WhatsApp' + (lockOn('whatsapp') ? ' · PDF locked' : '') + '</span><pre>' + escapeHtml(wa.subject + '\n\n' + wa.text) + '</pre></div>' +
+      '<div class="msg-card"><span class="msg-k">' + ICONS.mail + 'Email' + (lockOn('email') ? ' · PDF locked' : ' · PDF not locked') + '</span><pre><b>' + escapeHtml(em.subject) + '</b>\n\n' + escapeHtml(em.text) + '</pre></div>';
   }
 
   ['msgSubject', 'msgFrom', 'msgText'].forEach(function (id) {
@@ -1596,66 +1643,54 @@
       var key = { msgSubject: 'messageSubject', msgFrom: 'senderEmail', msgText: 'messageText' }[id];
       setCompanyValue(key, $(id).value);
       renderMessagePreview();
-      renderSendList();
     });
   });
 
-  function renderSendList() {
-    var ch = currentChannel();
+  function sendRows() {
     var slips = exportableSlips();
     var q = $('sendSearch').value.trim().toLowerCase();
-    var hideSent = $('hideSent').checked;
-    var rows = slips.filter(function (s) {
-      if (hideSent && isSent(s)) return false;
+    var f = $('sendFilter').value;
+    return slips.filter(function (s) {
+      if (f === 'todo' && isSent(s)) return false;
+      if (f === 'sent' && !isSent(s)) return false;
+      if (f === 'nocontact' && (s.fields.mobile || s.fields.email)) return false;
       if (!q) return true;
       return (s.employeeId + ' ' + s.name).toLowerCase().indexOf(q) >= 0;
     });
+  }
+
+  function renderSendList() {
+    var rows = sendRows();
     var LIMIT = 300;
     var tbody = $('sendTable').querySelector('tbody');
+    var dis = state.canSend ? '' : ' disabled';
     tbody.innerHTML = rows.slice(0, LIMIT).map(function (s, i) {
       var sent = isSent(s);
-      var contact = ch.contact === 'mobile' ? s.fields.mobile : ch.contact === 'email' ? s.fields.email : (s.fields.department || '');
-      var missing = ch.contact !== 'none' && !contact;
-      var fileName = Schema.slipFileName(s, state.company);
-      var acts = '';
-      if (ch.id === 'whatsapp') {
-        if (!missing) {
-          var m = messageFor(s);
-          if (canShareFiles) acts += '<button type="button" class="btn btn-small btn-primary" data-act="share" data-i="' + i + '">Share PDF</button>';
-          acts += '<a class="btn btn-small" href="' + escapeHtml(Delivery.waLink(contact, m.subject + '\n' + m.text)) + '" target="_blank" rel="noopener" data-act="wa" data-i="' + i + '">Open chat</a>';
-        }
-        acts += '<button type="button" class="btn btn-small btn-ghost" data-act="pdf" data-i="' + i + '">PDF</button>';
-      } else if (ch.id === 'outlook') {
-        if (!missing) acts += '<button type="button" class="btn btn-small btn-primary" data-act="eml" data-i="' + i + '">Outlook draft</button>';
-        acts += '<button type="button" class="btn btn-small btn-ghost" data-act="pdf" data-i="' + i + '">PDF</button>';
-      } else if (ch.id === 'mailmerge') {
-        if (!missing) {
-          var mm = messageFor(s);
-          acts += '<a class="btn btn-small" href="' + escapeHtml(Delivery.gmailComposeLink(contact, mm.subject, mm.text)) + '" target="_blank" rel="noopener" data-act="gmail" data-i="' + i + '">Gmail compose</a>';
-          acts += '<a class="btn btn-small btn-ghost" href="' + escapeHtml(Delivery.mailtoLink(contact, mm.subject, mm.text)) + '" data-act="mailto" data-i="' + i + '">Other mail app</a>';
-        }
-        acts += '<button type="button" class="btn btn-small btn-ghost" data-act="pdf" data-i="' + i + '">PDF</button>';
-      } else {
-        acts += '<button type="button" class="btn btn-small btn-ghost" data-act="pdf" data-i="' + i + '">PDF</button>';
-      }
-      return '<tr class="' + (sent ? 'sent' : '') + '" data-i="' + i + '" data-emp="' + escapeHtml(s.employeeId) + '">' +
-        '<td><input type="checkbox" data-act="tick" data-i="' + i + '"' + (sent ? ' checked' : '') + ' title="Mark as sent"></td>' +
-        '<td>' + escapeHtml(s.employeeId) + '</td>' +
-        '<td class="name">' + escapeHtml(s.name) + '</td>' +
-        '<td>' + (missing ? '<span class="nocontact">no ' + (ch.contact === 'mobile' ? 'mobile' : 'email') + ' in file</span>' : escapeHtml(ch.contact === 'mobile' ? '+' + contact : contact)) + '</td>' +
-        '<td class="muted small">' + escapeHtml(fileName) + '</td>' +
-        '<td class="acts">' + acts + '</td></tr>';
-    }).join('');
+      var mob = s.fields.mobile;
+      var mail = s.fields.email;
+      return '<tr class="' + (sent ? 'sent' : '') + '" data-emp="' + escapeHtml(s.employeeId) + '">' +
+        '<td class="tick"><input type="checkbox" data-act="tick" data-i="' + i + '"' + (sent ? ' checked' : '') + ' title="Sent"></td>' +
+        '<td class="who"><b>' + escapeHtml(s.name) + '</b><span>' + escapeHtml(s.employeeId) + (sent ? ' · <em>' + escapeHtml(sentText(s)) + '</em>' : '') + '</span></td>' +
+        '<td class="contact">' + (mob ? '+' + escapeHtml(mob) : '<span class="nocontact">no mobile</span>') + '<br>' + (mail ? escapeHtml(mail) : '<span class="nocontact">no email</span>') + '</td>' +
+        '<td class="acts">' +
+        '<button type="button" class="btn btn-small" data-act="view" data-i="' + i + '">' + ICONS.eye + 'View</button>' +
+        '<button type="button" class="btn btn-small btn-wa" data-act="wa" data-i="' + i + '"' + (mob ? dis : ' disabled') + ' title="' + (mob ? 'Send on WhatsApp' : 'No mobile number in the file') + '">' + ICONS.wa + 'WhatsApp</button>' +
+        '<button type="button" class="btn btn-small" data-act="eml" data-i="' + i + '"' + (mail ? dis : ' disabled') + ' title="' + (mail ? 'Send by email (Outlook)' : 'No email address in the file') + '">' + ICONS.mail + 'Email</button>' +
+        '<button type="button" class="btn btn-small btn-ghost icon-only" data-act="pdf" data-i="' + i + '" title="Download the PDF" aria-label="Download the PDF">' + ICONS.download + '</button>' +
+        '</td></tr>';
+    }).join('') || '<tr><td colspan="4" class="muted">Nobody matches.</td></tr>';
     tbody.__rows = rows;
-    $('sendCount').textContent = rows.length === slips.length ? slips.length : rows.length + ' of ' + slips.length;
-    $('sendNote').textContent = rows.length > LIMIT ? 'Showing the first ' + LIMIT + ' rows. Use the search box or tick "Hide sent" to see the rest.' : '';
+    $('sendCount').textContent = rows.length === exportableSlips().length ? rows.length : rows.length + ' of ' + exportableSlips().length;
+    $('sendNote').textContent = rows.length > LIMIT ? 'Showing the first ' + LIMIT + ' rows. Use the search box or the filter to see the rest.' : '';
   }
 
   $('sendSearch').addEventListener('input', renderSendList);
-  $('hideSent').addEventListener('change', renderSendList);
+  $('sendFilter').addEventListener('change', renderSendList);
+  $('btnStartSending').addEventListener('click', function () {
+    var next = nextUnsent();
+    if (next) openViewer(exportableSlips(), exportableSlips().indexOf(next));
+  });
 
-  // One delegated handler for every row action. Links (wa.me / Gmail / mailto) are real anchors so
-  // browsers do not treat them as popups; we only record the click.
   $('sendTable').addEventListener('click', function (e) {
     var el = e.target.closest('[data-act]');
     if (!el) return;
@@ -1663,67 +1698,12 @@
     var slip = rows[+el.getAttribute('data-i')];
     if (!slip) return;
     var act = el.getAttribute('data-act');
-    if (act === 'tick') {
-      if (el.checked) markSent(slip, currentChannel().id, 'manual');
-      else unmarkSent(slip);
-      return;
-    }
-    if (act === 'pdf') {
-      var art = artifactFor(slip);
-      downloadBlob(new Blob([art.bytes], { type: 'application/pdf' }), art.fileName);
-      return;
-    }
-    var sending = act === 'eml' || act === 'share' || act === 'wa' || act === 'gmail' || act === 'mailto';
-    if (sending && isSent(slip)) {
-      // already sent (maybe before a refresh or in another tab): ask before making a second email
-      e.preventDefault();
-      confirmResend(slip).then(function (yes) {
-        if (!yes) return;
-        if (act === 'eml') downloadDraft(slip);
-        else if (act === 'share') shareSlip(slip);
-        else {
-          window.open(el.href, act === 'mailto' ? '_self' : '_blank', 'noopener');
-          markSent(slip, act === 'wa' ? 'whatsapp' : 'email', 'sent again');
-        }
-      });
-      return;
-    }
-    if (act === 'eml') {
-      downloadDraft(slip);
-      return;
-    }
-    if (act === 'share') {
-      e.preventDefault();
-      shareSlip(slip);
-      return;
-    }
-    if (act === 'wa' || act === 'gmail' || act === 'mailto') {
-      // let the anchor open, then record it
-      setTimeout(function () { markSent(slip, act === 'wa' ? 'whatsapp' : 'email', act === 'wa' ? 'chat opened' : 'compose opened'); }, 50);
-    }
+    if (act === 'tick') { if (el.checked) markSent(slip, 'manual', 'ticked by hand'); else unmarkSent(slip); }
+    else if (act === 'view') openViewer(rows, rows.indexOf(slip));
+    else if (act === 'wa') sendWhatsApp(slip);
+    else if (act === 'eml') sendEmail(slip);
+    else if (act === 'pdf') downloadPdf(slip);
   });
-
-  function shareSlip(slip) {
-    var a2 = artifactFor(slip);
-    var m2 = messageFor(slip);
-    var file = new File([a2.bytes], a2.fileName, { type: 'application/pdf' });
-    navigator.share({ files: [file], title: m2.subject, text: m2.subject + '\n' + m2.text }).then(function () {
-      markSent(slip, 'whatsapp', 'shared');
-    }).catch(function (err) {
-      if (err && err.name !== 'AbortError') setAlert($('sendMessage'), 'Share failed: ' + escapeHtml(err.message) + '. Use "Open chat" and attach the file by hand.', 'warn');
-    });
-  }
-
-  function confirmResend(slip) {
-    var e = state.sent[slip.employeeId] || {};
-    var when = e.timestamp ? new Date(e.timestamp) : null;
-    var whenText = when ? when.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) + ', ' + when.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : 'earlier';
-    return Guide.confirm({
-      title: 'Already sent',
-      html: '<b>' + escapeHtml(slip.name) + '</b> was marked as sent on <b>' + escapeHtml(whenText) + '</b>' + (e.note ? ' (' + escapeHtml(e.note) + ')' : '') + '. Sending again means a second email for this person.',
-      ok: 'Send again', cancel: 'Keep one'
-    });
-  }
 
   // A warning when some ticks were made while a different version of the Excel file was loaded.
   function renderSendNotice() {
@@ -1738,74 +1718,94 @@
       : '';
   }
 
-  async function downloadEmlPack() {
-    var slips = exportableSlips().filter(function (s) { return s.fields.email; });
-    if (!slips.length) { setAlert($('sendMessage'), 'No employee has an email address in the file.', 'warn'); return; }
-    beginExport(5);
-    try {
-      var items = await buildAll(slips, 5);
-      var zip = new JSZip();
-      var root = zip.folder(baseName() + ' - Outlook drafts');
-      items.forEach(function (it, i) {
-        var m = messageFor(it.slip);
-        var eml = Delivery.buildEml({ from: state.company.senderEmail, to: it.slip.fields.email, subject: m.subject, text: m.text, fileName: it.fileName, pdfBytes: it.art.bytes });
-        root.folder('batch-' + ('0' + (Math.floor(i / EML_BATCH) + 1)).slice(-2)).file(it.fileName.replace(/\.pdf$/, '.eml'), eml);
-      });
-      var pdfs = root.folder('pdf');
-      items.forEach(function (it) { pdfs.file(it.fileName, it.art.bytes); });
-      pdfs.file('manifest.csv', Delivery.manifestCsv(items, state.company));
-      pdfs.file('OutlookDrafts.bas', Delivery.outlookVbaModule(state.company));
-      root.file('READ ME - how to send.html', Delivery.outlookGuideHtml(state.company, EML_BATCH));
-      setProgress(1, 1, 'Packing ZIP…', 5);
-      await nextTick();
-      var blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
-      downloadBlob(blob, baseName() + ' - Outlook drafts.zip');
-      celebrateDone();
-      setAlert($('sendMessage'), '<strong>Done.</strong> ' + plural(items.length, 'draft') + ' in ' + Math.ceil(items.length / EML_BATCH) + ' batch folder(s), plus the PDFs, manifest and macro (' + (blob.size / 1024 / 1024).toFixed(1) + ' MB). Open "READ ME - how to send.html" first.', 'ok');
-    } catch (e) {
-      reportError($('sendMessage'), e);
-    } finally {
-      endExport(5);
-    }
-  }
+  // --- viewer: look first, then send ----------------------------------------
+  var viewer = null;
+  function openViewer(list, index) {
+    if (!list.length) return;
+    var i = Math.max(0, index);
+    var url = null;
+    var justSent = false;
+    var m = Guide.modal({
+      className: 'viewer',
+      label: 'Payslip',
+      html: '<div class="vw-top"><button type="button" class="btn btn-small" data-v="prev" aria-label="Previous">←</button><div class="vw-pos"></div>' +
+        '<button type="button" class="btn btn-small" data-v="next" aria-label="Next">→</button></div>' +
+        '<div class="vw-grid"><div class="vw-doc"><iframe title="Payslip"></iframe><a class="vw-open" target="_blank" rel="noopener">Open in a new tab</a></div><div class="vw-side"></div></div>',
+      onKey: function (e) {
+        if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+        if (e.key === 'ArrowRight') { e.preventDefault(); go(1); }
+        if (e.key === 'ArrowLeft') { e.preventDefault(); go(-1); }
+      },
+      onClose: function () {
+        if (url) URL.revokeObjectURL(url);
+        viewer = null;
+      }
+    });
+    var el = m.el;
 
-  async function downloadMergePack() {
-    var all = exportableSlips();
-    var slips = all.filter(function (s) { return s.fields.email; });
-    if (!slips.length) { setAlert($('sendMessage'), 'No employee has an email address in the file.', 'warn'); return; }
-    beginExport(5);
-    try {
-      var items = await buildAll(slips, 5);
-      items.forEach(function (it) {
-        var m = messageFor(it.slip);
-        it.subject = m.subject;
-        it.body = m.text;
-      });
-      var zip = new JSZip();
-      var root = zip.folder(baseName() + ' - Mail Merge');
-      items.forEach(function (it) { root.file(it.fileName, it.art.bytes); });
-      root.file('mailmerge.csv', Delivery.mailMergeCsv(items, state.company));
-      root.file('manifest.csv', Delivery.manifestCsv(items, state.company));
-      root.file('READ ME - how to send.html', Delivery.mailMergeGuideHtml(state.company, { withEmail: items.length, withoutEmail: all.length - items.length }));
-      setProgress(1, 1, 'Packing ZIP…', 5);
-      await nextTick();
-      var blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
-      downloadBlob(blob, baseName() + ' - Mail Merge.zip');
-      celebrateDone();
-      setAlert($('sendMessage'), '<strong>Done.</strong> Mail Merge pack with ' + plural(items.length, 'PDF') + ', mailmerge.csv and the guide (' + (blob.size / 1024 / 1024).toFixed(1) + ' MB). Open "READ ME - how to send.html" first.' + (all.length - items.length ? ' ' + (all.length - items.length) + ' employee(s) without email are not included.' : ''), 'ok');
-    } catch (e) {
-      reportError($('sendMessage'), e);
-    } finally {
-      endExport(5);
+    function go(d) {
+      if (!list.length) return;
+      i = (i + d + list.length) % list.length;
+      justSent = false;
+      show(true);
     }
-  }
 
-  function downloadRegister() {
-    var slips = exportableSlips();
-    var doc = PDF.createDoc(jsPDF, state.profile.paper);
-    PDF.renderRegister(doc, { settings: state.company, slips: slips });
-    PDF.setMeta(doc, state.company, 'Acknowledgement register');
-    downloadBlob(doc.output('blob'), baseName() + ' - Acknowledgement register.pdf');
+    function show(loadPdf) {
+      var s = list[i];
+      if (loadPdf) {
+        if (url) URL.revokeObjectURL(url);
+        url = URL.createObjectURL(previewBlob(s));
+        el.querySelector('iframe').src = url + '#toolbar=0&navpanes=0&view=FitH';
+        el.querySelector('.vw-open').href = url;
+      }
+      el.querySelector('.vw-pos').innerHTML = '<b>' + (i + 1) + '</b> of ' + list.length;
+      var sent = isSent(s);
+      var cur = escapeHtml(state.company.currency || 'SAR');
+      var waLocked = lockOn('whatsapp');
+      var emLocked = lockOn('email');
+      var issues = s.issues.filter(function (x) { return x.level !== 'info'; });
+      var dis = state.canSend ? '' : ' disabled';
+      el.querySelector('.vw-side').innerHTML =
+        '<div class="vw-who"><b>' + escapeHtml(s.name) + '</b><span>' + escapeHtml([s.employeeId, s.fields.jobTitle, s.fields.department].filter(Boolean).join(' · ')) + '</span></div>' +
+        '<div class="vw-net"><span>Net pay</span><b>' + cur + ' ' + Schema.formatMoney(s.net) + '</b></div>' +
+        '<div class="vw-status ' + (sent ? 'is-sent' : '') + '">' + (sent ? '✓ ' + escapeHtml(sentText(s)) : 'Not sent yet') + '</div>' +
+        (issues.length ? '<ul class="vw-issues">' + issues.slice(0, 3).map(function (x) { return '<li class="' + (x.level === 'error' ? 'err' : 'warn') + '">' + escapeHtml(x.message) + '</li>'; }).join('') + '</ul>' : '') +
+        '<div class="vw-actions">' +
+        '<button type="button" class="btn btn-wa btn-block" data-v="wa"' + (s.fields.mobile ? dis : ' disabled') + '>' + ICONS.wa + 'Send on WhatsApp</button>' +
+        '<span class="vw-sub">' + (s.fields.mobile ? '+' + escapeHtml(s.fields.mobile) + (waLocked ? ' · ' + ICONS.lock + 'locked' : ' · not locked') : 'No mobile number in the file') + '</span>' +
+        (canShareFiles && s.fields.mobile ? '<button type="button" class="link vw-share" data-v="share"' + dis + '>' + ICONS.share + 'or share the file to WhatsApp</button>' : '') +
+        '<button type="button" class="btn btn-block" data-v="eml"' + (s.fields.email ? dis : ' disabled') + '>' + ICONS.mail + 'Send by email</button>' +
+        '<span class="vw-sub">' + (s.fields.email ? escapeHtml(s.fields.email) + (emLocked ? ' · ' + ICONS.lock + 'locked' : ' · not locked') : 'No email address in the file') + '</span>' +
+        '<button type="button" class="btn btn-ghost btn-block" data-v="pdf">' + ICONS.download + 'Download PDF</button>' +
+        '</div>' +
+        (justSent === 'wa' ? '<p class="vw-hint">WhatsApp is opening with the message typed. The PDF is in your Downloads: drag it into the chat, then press Send.</p>' : '') +
+        (justSent === 'eml' ? '<p class="vw-hint">Open the downloaded email (bottom of the browser). Outlook shows it ready: press Send.</p>' : '') +
+        (justSent ? '<button type="button" class="btn btn-primary btn-block" data-v="nextUnsent">Next payslip →</button>' : '');
+    }
+
+    el.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-v]');
+      if (!b || b.disabled) return;
+      var v = b.getAttribute('data-v');
+      var s = list[i];
+      if (v === 'prev') go(-1);
+      else if (v === 'next') go(1);
+      else if (v === 'wa') { sendWhatsApp(s); justSent = 'wa'; show(false); }
+      else if (v === 'share') { shareWhatsApp(s); }
+      else if (v === 'eml') { sendEmail(s); justSent = 'eml'; show(false); }
+      else if (v === 'pdf') downloadPdf(s);
+      else if (v === 'nextUnsent') {
+        var n = nextUnsent(s);
+        if (!n) { m.close(); return; }
+        var k = list.indexOf(n);
+        if (k < 0) { list = exportableSlips(); k = list.indexOf(n); }
+        i = k;
+        justSent = false;
+        show(true);
+      }
+    });
+    viewer = { refresh: function () { show(false); } };
+    show(true);
   }
 
   $('btnLogCsv').addEventListener('click', function () {
@@ -2027,7 +2027,6 @@
       step: state.step,
       parseOptions: state.parseOptions,
       skipErrors: $('skipErrors').checked,
-      protectPdfs: $('protectPdfs').checked,
       bankTotal: state.bankTotal,
       exportedTo: state.exportedTo,
       sourceHash: state.sourceHash,
@@ -2049,7 +2048,9 @@
     var st = s.state || {};
     var wb;
     try {
-      wb = s.file.kind === 'paste' ? readPasted(s.file.text) : XLSX.read(s.file.bytes, { type: 'array', cellDates: true, cellStyles: true });
+      wb = s.file.kind === 'paste' ? readPasted(s.file.text)
+        : /\.(csv|txt)$/i.test(s.file.name) ? Schema.readCsv(XLSX, decodeText(s.file.bytes))
+        : XLSX.read(s.file.bytes, { type: 'array', cellDates: true, cellStyles: true });
     } catch (e) {
       Vault.clearSession();
       state.pendingSession = null;
@@ -2065,12 +2066,12 @@
       state.dirHandle = rec.dir;
       state.dirWritable = false;
       return rec.dir.queryPermission ? rec.dir.queryPermission({ mode: 'readwrite' }).then(function (p) { state.dirWritable = p === 'granted'; }) : null;
-    }).then(function () { if (state.step === 5) renderSummaryChips(); }).catch(function () { /* no handle */ });
+    }).then(function () { refreshSendViews(); }).catch(function () { /* no handle */ });
     var sent = Object.keys(state.sent).length;
-    Art.say('celebrate', null, { settle: state.step === 5 ? 'send' : 'look', after: 2600 });
+    Art.say('celebrate', null, { settle: state.step === 4 ? 'send' : 'look', after: 2600 });
     Guide.toast({
       id: 'restored', kind: 'ok', icon: '↺', timeout: 9000,
-      html: '<b>Welcome back, nothing was lost.</b> ' + escapeHtml(s.file.name) + ' is open again on the ' + ['', 'Upload', 'Review', 'Design', 'Export', 'Send'][state.step] + ' step' + (sent ? ', ' + plural(sent, 'payslip') + ' already marked as sent' : '') + '.',
+      html: '<b>Welcome back, nothing was lost.</b> ' + escapeHtml(s.file.name) + ' is open again on the ' + ['', 'Upload', 'Review', 'Design', 'Send'][state.step] + ' step' + (sent ? ', ' + plural(sent, 'payslip') + ' already marked as sent' : '') + '.',
       actions: auto ? [{ label: 'Start fresh instead', onClick: discardSession }] : []
     });
   }
@@ -2133,8 +2134,8 @@
     var html = '';
     if (s && !state.parsed) {
       var st = s.state || {};
-      var steps = ['', 'Upload', 'Review', 'Design', 'Export', 'Send'];
-      var sending = st.step === 5 && st.total;
+      var steps = ['', 'Upload', 'Review', 'Design', 'Send', 'Send'];
+      var sending = st.step >= 4 && st.total;
       html = ringSvg(sending ? (st.sent || 0) / st.total : (st.step || 2) / 5, sending ? (st.sent || 0) + '/' + st.total : (st.step || 2) + '/5') +
         '<div class="wl-text"><div class="wl-kicker">Pick up where you left off</div><div class="wl-title">' + escapeHtml(s.file.name) + '</div>' +
         '<div class="wl-meta">' + escapeHtml([st.company, st.period, st.step ? steps[st.step] + ' step' : '', sending ? (st.sent || 0) + ' of ' + st.total + ' sent' : ''].filter(Boolean).join(' · ')) +

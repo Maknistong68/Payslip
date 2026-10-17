@@ -11,13 +11,15 @@ The Excel file never leaves the computer.
 ## How to use
 
 Open `index.html` in Chrome, Edge or Firefox (double-click it; it works from a USB stick or a shared drive).
-The page is a five-step wizard:
+The page is a four-step wizard:
 
 1. **Upload** – drop the Excel file (or CSV, or paste the cells straight from Excel). First time? Download the
    template (or a filled example). Used it before? Load the settings file you saved last time.
 2. **Review** – one sentence tells you whether the file is ready. Below it:
    - *Source bar* (only when needed): which sheet to read (or all sheets combined), which row holds the
-     headers, whether to include hidden rows, and a badge when a saved column setup was applied.
+     headers, whether to include hidden rows, a badge when a saved column setup was applied, and
+     **Other sheets**: overtime, attendance, loans or employee-list sheets found in the same file, each with a
+     switch, what it adds and how many employees matched.
    - *Totals*: earnings, deductions and net to pay, with a box for the bank / WPS transfer total that shows
      ✓ or the exact difference.
    - *Company details*: filled from the file's `Settings` sheet, or typed once here if the file has none
@@ -30,29 +32,28 @@ The page is a five-step wizard:
    and a checklist of what to print, with a live preview. *Save settings file* / *Load settings file* keep
    every payslip uniform across months and computers; *Download my template* gives an Excel file already
    filled with your company details and logo.
-4. **Export** – a folder of PDFs (Chrome/Edge, written straight to a folder you pick) or a ZIP, one file per
-   employee named `EMP-001_2026-10_Name.pdf` plus a `manifest.csv`; each file is password protected using
-   the *Password Rule* (default: the Iqama / National ID number). A combined PDF for printing or
-   the archive is also available.
-5. **Send** – Outlook is the default (and for now the only visible) channel: press **Next draft** or the Enter
-   key, classic Outlook opens a ready email with the locked PDF attached, you press Send. The other channels
-   below are still built in but hidden; open the page with `?channels=all` to show them again
-   (`?channels=outlook` hides them). Nothing is sent by the page itself:
-   - **WhatsApp**: one button per employee opens the chat with the message typed; on an HTTPS page in
-     Chrome/Edge/Safari a *Share PDF* button hands the file itself to WhatsApp through the system share sheet.
-   - **Outlook (Windows)**: one `.eml` per employee that classic Outlook opens as a ready draft with the PDF
-     attached, plus a pack with batches of 50, a guide and a macro that saves every draft in one run.
-   - **Gmail / any mailbox**: a Mail Merge pack (PDFs + `mailmerge.csv` + guide) for the free Thunderbird
-     Mail Merge add-on, which sends every payslip with its own attachment in one run.
-   - **Print & sign**: an acknowledgement register to collect signatures.
-   Rows are ticked as you go; the ticks survive reloads and export as a delivery log CSV with file hashes.
+4. **Send** – view first, then send. Nothing is sent by the page itself:
+   - **View** opens the payslip in a viewer with *previous / next*, the net pay, the row's warnings and the
+     send buttons. *Start* (or *Continue with …*) opens the next person not sent yet.
+   - **Send on WhatsApp** opens the chat with the right number and the message typed, and downloads the PDF to
+     attach (drag it into the chat). On phones and Chrome/Edge with file sharing, *share the file to WhatsApp*
+     hands the PDF over directly.
+   - **Send by email** downloads a ready Outlook email (`.eml`) with the PDF attached: open it, press Send.
+   - **Download** saves the single PDF.
+   - **Password on the PDF**, one switch per channel: WhatsApp on (recommended), email off, downloads on; the
+     password is the Iqama / National ID number by default (or Iqama + birth day and month, date of birth, or a
+     password column). The message includes the password hint only when that channel's PDF is locked.
+   - **More**: all PDFs to a folder or a ZIP, one PDF to print, the signature register, all Outlook emails as a
+     ZIP (batches of 50 + macro), the Thunderbird Mail Merge pack for Gmail or any mailbox, the delivery log
+     CSV, restore ticks from a log, clear ticks.
+   Rows are ticked as you send; the ticks survive reloads and export as a delivery log CSV with file hashes.
 
 ### First visit, save point and never losing work
 
 - **First visit** (nothing saved in this browser yet): a 30-second animated quick start opens by itself:
   download the template, fill it, drop it, save the settings file. It can be replayed from *▶ 30-second guide*.
   Returning visitors get a *Welcome back* card with their company and backup status instead.
-- **Save point**: before the Export step, if the setup (company, logo, design, columns, message) has no
+- **Save point**: before the Send step, if the setup (company, logo, design, columns, message) has no
   up-to-date settings file, an animated save point offers to save one. Skipping is remembered until something
   changes. The top bar shows the backup state at all times (*Save settings* / *Save changes* / *Backed up*).
   In Chrome and Edge the file is picked once and then **kept up to date automatically**; other browsers download it.
@@ -74,12 +75,22 @@ build plan in `docs/DELIVERY_PLAN.md`.
 
 ## What the file can look like
 
-The template gives the best result, but any salary sheet is accepted:
+The template gives the best result, but any salary sheet is accepted (20 real-world cases are tested; see
+`docs/PARSING_SCENARIOS.md`):
 
 - One row per employee. Required: a name column and at least one amount (a Net Salary column alone is enough).
   Everything else is optional. First Name / Last Name columns are joined.
 - Several sheets: sheets with the same layout (one per site) are combined; one sheet per month picks the
   pay period's month (or the latest). Hidden sheets, hidden rows and sheets named Lists/Lookup are skipped.
+- Extra sheets are used: overtime (amounts and hours, also daily logs), attendance (also day-by-day P/A
+  timesheets), loans / deductions and employee lists (names, Iqama, mobile, email, bank), matched by employee
+  number, Iqama or name. Details fill empty fields; amounts are added automatically only when the payroll's
+  net salary column confirms them, otherwise one switch on the Review screen decides. Summaries and pivots are
+  ignored.
+- Sideways tables (one column per employee) and one-sheet-per-employee payslip forms are read too. Headers
+  repeated on printed pages and page totals are skipped.
+- Files that are not a payroll (stock lists, attendance only, an employee list without salaries) get a clear
+  message instead of empty payslips.
 - The header row is searched in the first 200 rows and can be picked by hand.
 - Headers are matched exactly, by alias (*Iqama*, *HRA*, *Net Payable*…) or by keyword; a merged
   "Earnings / Deductions" title row above the headers is used to classify unknown pay columns.
@@ -143,7 +154,8 @@ sw.js             service worker (offline cache); manifest.webmanifest and icons
 css/fonts/        Sora display font (SIL Open Font License)
 js/vendor/        SheetJS, jsPDF, JSZip, ExcelJS (MIT) (bundled so the page works offline)
 samples/          template, sample workbook, sample PDFs
-tools/            build-samples.js (regenerates samples/), build-icons.js (regenerates icons/), test.js (smoke tests)
+tools/            build-samples.js (regenerates samples/), build-icons.js (regenerates icons/), test.js (smoke tests),
+                  scenarios.js (the 20 workbook cases)
 ```
 
 ## Development
@@ -163,6 +175,10 @@ No build step; edit the files and reload the page.
 - Nothing can be sent from a web page without a click per employee. WhatsApp needs one click (plus picking
   the contact in the share sheet, or dragging the file); the only zero-click route is the Thunderbird Mail
   Merge pack, which needs a one-time install.
+- WhatsApp cannot receive a file from a web page directly on most computers: the chat opens with the message,
+  and the PDF (already downloaded) is dragged in by hand. On phones the share sheet sends it in one step.
+- The viewer shows the PDF with the browser's built-in PDF viewer; some phone browsers show an
+  "Open in a new tab" link instead.
 - The `.eml` drafts open as editable drafts only in classic Outlook for Windows (build 2109 or newer).
   New Outlook, Outlook for Mac, Apple Mail and web mail open them read-only.
 - PDF passwords use the 40-bit RC4 standard security handler built into jsPDF: it stops casual opening and

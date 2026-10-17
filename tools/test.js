@@ -132,7 +132,7 @@ XLSX.utils.book_append_sheet(unk, XLSX.utils.aoa_to_sheet([
   ['1', 'Ahmed', 3000, 500]
 ]), 'Data');
 var u = Schema.parseWorkbook(XLSX, readWb(wbToBuf(unk)));
-assert.ok(u.issues.some(function (i) { return i.code === 'no-header' || i.code === 'missing-name'; }), JSON.stringify(u.issues));
+assert.ok(u.issues.some(function (i) { return i.code === 'not-payroll'; }), JSON.stringify(u.issues));
 var u2 = Schema.parseWorkbook(XLSX, readWb(wbToBuf(unk)), { overrides: {
   'col b': { kind: 'column', key: 'name' }, 'col c': { kind: 'column', key: 'basicSalary' }, 'col d': { kind: 'column', key: 'housing' }
 } });
@@ -370,6 +370,30 @@ big.slips.forEach(function (slip, i) {
 });
 var bigBuf = Buffer.from(bigDoc.output('arraybuffer'));
 console.log('1000 payslips rendered in', Date.now() - t0, 'ms,', (bigBuf.length / 1024 / 1024).toFixed(1), 'MB');
+
+// 20 real-world workbooks (extra overtime / attendance / loans / employee sheets, odd layouts, non-payroll files)
+var scenarioResults = require(path.join(__dirname, 'scenarios.js')).run(XLSX, Schema);
+scenarioResults.forEach(function (r) {
+  assert.ok(r.pass, 'Scenario ' + r.id + ' (' + r.title + '): ' + r.fails.join(' | ') + ' [got ' + r.got + ']');
+});
+
+// A payroll sheet whose name mentions overtime is still the payroll; an employee list with a contract salary
+// column next to the payroll only supplies details (no double basic salary).
+(function () {
+  var one = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(one, XLSX.utils.aoa_to_sheet([['Emp ID', 'Name', 'Basic', 'OT Hours', 'OT Amount'], ['E1', 'Ali', 3000, 5, 150]]), 'Salary & OT');
+  var p1 = Schema.parseWorkbook(XLSX, readWb(wbToBuf(one)));
+  assert.strictEqual(p1.slips.length, 1, JSON.stringify(p1.issues));
+  assert.strictEqual(p1.slips[0].net, 3150);
+  var two = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(two, XLSX.utils.aoa_to_sheet([['Emp ID', 'Name', 'Basic', 'Housing', 'Net'], ['E1', 'Ali', 3000, 750, 3750], ['E2', 'Omar', 2000, 500, 2500]]), 'October');
+  XLSX.utils.book_append_sheet(two, XLSX.utils.aoa_to_sheet([['Emp ID', 'Name', 'Basic Salary', 'Mobile', 'IBAN'], ['E1', 'Ali', 3000, '0551234567', 'SA0380000000608010167519'], ['E2', 'Omar', 2000, '0559876543', '']]), 'Staff');
+  var p2 = Schema.parseWorkbook(XLSX, readWb(wbToBuf(two)));
+  assert.strictEqual(p2.sheetName, 'October');
+  assert.strictEqual(p2.slips[0].net, 3750, 'basic salary not added twice');
+  assert.strictEqual(p2.slips[0].fields.mobile, '966551234567', 'mobile from the staff sheet');
+  assert.strictEqual(p2.supplements[0].role, 'employees');
+})();
 
 // Safety net: the delivery journal never loses a tick or revives an undone one, whatever order copies merge in.
 var Vault = require(path.join(__dirname, '..', 'js', 'vault.js'));

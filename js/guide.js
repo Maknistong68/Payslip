@@ -176,6 +176,80 @@
         '</svg>';
     },
 
+    view: function () {
+      var id = 'gs' + (++uid);
+      var line = function (y, w, color, d, x) { return '<rect class="pv-line" style="--d:' + d + 's" x="' + (x || 112) + '" y="' + y + '" width="' + w + '" height="7" rx="3.5" fill="' + color + '"/>'; };
+      var act = function (y, w, label, fill, color, d) {
+        return '<g class="pv-act" style="--d:' + d + 's"><rect x="276" y="' + y + '" width="' + w + '" height="26" rx="9" fill="' + fill + '"/>' +
+          '<text x="' + (276 + w / 2) + '" y="' + (y + 17) + '" text-anchor="middle" font-size="10.5" font-weight="800" fill="' + color + '" font-family="Segoe UI, system-ui, sans-serif">' + label + '</text></g>';
+      };
+      return '<svg class="scene sc-view" viewBox="0 0 360 240" aria-hidden="true">' + defs(id) +
+        '<g class="pv-doc"><rect x="96" y="12" width="164" height="216" rx="12" fill="#fff" stroke="' + INK + '" stroke-opacity=".16" stroke-width="1.5"/>' +
+        '<path d="M96 24a12 12 0 0 1 12-12h140a12 12 0 0 1 12 12v22H96z" fill="url(#' + id + 'b)"/>' +
+        '<rect x="108" y="22" width="16" height="16" rx="4" fill="#fff" opacity=".9"/>' +
+        '<text x="132" y="34.5" font-size="10" font-weight="800" letter-spacing=".12em" fill="#fff" font-family="Segoe UI, system-ui, sans-serif">PAYSLIP</text>' +
+        line(58, 78, '#475569', 0.5) + line(70, 52, '#cbd5e1', 0.6) +
+        line(92, 58, '#cbd5e1', 0.8) + line(92, 34, '#94a3b8', 0.85, 212) +
+        line(106, 48, '#cbd5e1', 0.95) + line(106, 30, '#94a3b8', 1.0, 216) +
+        line(120, 62, '#cbd5e1', 1.1) + line(120, 26, '#94a3b8', 1.15, 220) +
+        line(140, 50, '#fecaca', 1.3) + line(140, 24, '#f87171', 1.35, 222) +
+        '<g class="pv-net"><rect x="108" y="162" width="140" height="28" rx="8" fill="#ecfdf5" stroke="#10b981" stroke-width="1.5"/>' +
+        '<text x="118" y="180.5" font-size="9" font-weight="800" letter-spacing=".08em" fill="#047857" font-family="Segoe UI, system-ui, sans-serif">NET PAY</text>' +
+        '<text x="240" y="181" text-anchor="end" font-size="12" font-weight="800" fill="#047857" font-family="Segoe UI, system-ui, sans-serif">3,650.00</text></g>' +
+        '<path d="M112 210h50M196 210h50" stroke="#cbd5e1" stroke-width="2" stroke-linecap="round"/></g>' +
+        '<g class="pv-eye"><circle cx="70" cy="70" r="24" fill="#fff" stroke="' + INK + '" stroke-width="3"/><path d="M54 70s6-10 16-10 16 10 16 10-6 10-16 10-16-10-16-10z" fill="none" stroke="' + INK + '" stroke-width="2.6" stroke-linejoin="round"/><circle cx="70" cy="70" r="4.5" fill="#2563eb"/></g>' +
+        act(88, 72, 'View', '#dbeafe', '#1d4ed8', 2.1) + act(122, 76, 'WhatsApp', '#16a34a', '#fff', 2.3) + act(156, 60, 'Email', '#e2e8f0', INK, 2.5) +
+        '</svg>';
+    },
+
+    whatsapp: function () {
+      var id = 'gs' + (++uid);
+      return '<svg class="scene sc-wa" viewBox="0 0 360 240" aria-hidden="true">' + defs(id) +
+        '<rect x="112" y="6" width="136" height="228" rx="24" fill="' + INK + '"/>' +
+        '<rect x="119" y="18" width="122" height="206" rx="16" fill="#efe7dd"/>' +
+        '<path d="M119 34a16 16 0 0 1 16-16h90a16 16 0 0 1 16 16v14H119z" fill="#128c7e"/>' +
+        '<circle cx="136" cy="37" r="8" fill="#cbd5e1"/>' +
+        '<text x="150" y="40.5" font-size="9.5" font-weight="700" fill="#fff" font-family="Segoe UI, system-ui, sans-serif">Ahmed Hassan</text>' +
+        '<g class="wa-msg"><rect x="146" y="60" width="88" height="48" rx="9" fill="#d9fdd3"/>' +
+        '<rect x="154" y="70" width="58" height="5" rx="2.5" fill="#64748b"/><rect x="154" y="81" width="72" height="5" rx="2.5" fill="#94a3b8"/><rect x="154" y="92" width="46" height="5" rx="2.5" fill="#94a3b8"/></g>' +
+        '<g class="wa-pdf"><rect x="140" y="116" width="94" height="44" rx="9" fill="#d9fdd3"/><rect x="146" y="122" width="82" height="30" rx="6" fill="#fff"/>' +
+        '<rect x="151" y="126" width="15" height="21" rx="2.5" fill="#ef4444"/><text x="158.5" y="140" text-anchor="middle" font-size="5.5" font-weight="900" fill="#fff" font-family="Segoe UI, system-ui, sans-serif">PDF</text>' +
+        '<text x="171" y="135" font-size="7.5" font-weight="700" fill="' + INK + '" font-family="Segoe UI, system-ui, sans-serif">Payslip.pdf</text>' +
+        '<g transform="translate(171 139)"><rect x="0" y="3" width="8" height="6" rx="1.5" fill="#f59e0b"/><path d="M1.5 3V1.8a2.5 2.5 0 0 1 5 0V3" fill="none" stroke="#f59e0b" stroke-width="1.4"/></g>' +
+        '<text x="182" y="146" font-size="6.5" fill="#64748b" font-family="Segoe UI, system-ui, sans-serif">locked</text></g>' +
+        '<g class="wa-ticks"><path d="M214 164l3 3 6-6M220 164l3 3 6-6" fill="none" stroke="#53bdeb" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></g>' +
+        '<g class="wa-send"><circle cx="226" cy="206" r="11" fill="#16a34a"/><path d="M221 206l10-5-3 11-2-4z" fill="#fff"/></g>' +
+        '<g class="wa-lock"><path d="M100 138 H140" stroke="#f59e0b" stroke-width="2" stroke-dasharray="4 4"/>' +
+        '<rect x="8" y="118" width="94" height="42" rx="12" fill="#fff" stroke="#f59e0b" stroke-width="2"/>' +
+        '<g transform="translate(18 128)"><rect x="0" y="8" width="16" height="12" rx="3" fill="#f59e0b"/><path d="M3 8V5.5a5 5 0 0 1 10 0V8" fill="none" stroke="#f59e0b" stroke-width="2.4"/></g>' +
+        '<text x="42" y="135" font-size="9" font-weight="800" fill="' + INK + '" font-family="Segoe UI, system-ui, sans-serif">Password:</text>' +
+        '<text x="42" y="149" font-size="9" fill="#475569" font-family="Segoe UI, system-ui, sans-serif">Iqama no.</text></g>' +
+        '</svg>';
+    },
+
+    email: function () {
+      var id = 'gs' + (++uid);
+      var T = function (x, y, size, weight, color, text) { return '<text x="' + x + '" y="' + y + '" font-size="' + size + '" font-weight="' + weight + '" fill="' + color + '" font-family="Segoe UI, system-ui, sans-serif">' + text + '</text>'; };
+      return '<svg class="scene sc-mail" viewBox="0 0 360 240" aria-hidden="true">' + defs(id) +
+        '<rect x="20" y="12" width="320" height="196" rx="14" fill="#fff" stroke="' + INK + '" stroke-opacity=".14" stroke-width="1.5"/>' +
+        '<path d="M20 26a14 14 0 0 1 14-14h292a14 14 0 0 1 14 14v12H20z" fill="#eef2f7"/>' +
+        T(150, 31, 10, 700, '#475569', 'New message') +
+        T(36, 60, 10, 700, '#64748b', 'To') + '<g class="ml-f" style="--d:.3s">' + T(66, 60, 10.5, 600, INK, 'ahmed@example.com') + '</g>' +
+        '<path d="M36 68h288" stroke="#e2e8f0"/>' +
+        T(36, 86, 10, 700, '#64748b', 'Subject') + '<g class="ml-f" style="--d:.6s">' + T(84, 86, 10.5, 700, INK, 'Payslip October 2026') + '</g>' +
+        '<path d="M36 94h288" stroke="#e2e8f0"/>' +
+        '<rect class="ml-line" style="--d:.9s" x="36" y="106" width="74" height="6" rx="3" fill="#94a3b8"/>' +
+        '<rect class="ml-line" style="--d:1.05s" x="36" y="119" width="190" height="6" rx="3" fill="#cbd5e1"/>' +
+        '<rect class="ml-line" style="--d:1.2s" x="36" y="132" width="120" height="6" rx="3" fill="#cbd5e1"/>' +
+        '<g class="ml-att"><rect x="36" y="148" width="116" height="28" rx="8" fill="#f1f5f9" stroke="#cbd5e1"/><rect x="44" y="153" width="14" height="18" rx="2.5" fill="#ef4444"/>' +
+        T(46, 165, 5.5, 900, '#fff', 'PDF') + T(64, 166, 9, 700, INK, 'Payslip.pdf') + '</g>' +
+        '<g class="ml-send"><rect x="248" y="172" width="76" height="28" rx="9" fill="url(#' + id + 'b)"/>' + T(272, 190, 11, 800, '#fff', 'Send') + '</g>' +
+        '<g class="ml-cursor"><path d="M0 0v22l6-5.5 3.8 8.8 4.2-1.8-3.8-8.6h8.2z" fill="' + INK + '" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></g>' +
+        '<g class="ml-plane"><path d="M0 8 22 0 14 22 10 13z" fill="#fff" stroke="#2563eb" stroke-width="2" stroke-linejoin="round"/></g>' +
+        '<g class="ml-sent"><rect x="214" y="214" width="126" height="24" rx="12" fill="#ecfdf5" stroke="#10b981"/>' + T(232, 230, 10, 800, '#047857', '✓ Sent to Ahmed') + '</g>' +
+        '</svg>';
+    },
+
     save: function () {
       var id = 'gs' + (++uid);
       var chip = function (cls, x, y, w, label, color) {
@@ -205,17 +279,22 @@
   // Quick start tour
   // ---------------------------------------------------------------------------
   var TOUR = [
-    { scene: 'download', mood: 'idle', kicker: 'Step 1', title: 'Grab the template',
-      text: 'One Excel file with everything ready: colour-coded columns, drop-downs, and checks that catch mistakes while you type.',
+    { scene: 'download', mood: 'idle', title: 'Get the template',
+      text: 'One Excel file, ready to fill. Coloured columns and checks catch mistakes while you type. Your own salary sheet works too.',
       action: 'download' },
-    { scene: 'fill', mood: 'design', kicker: 'Step 2', title: 'Fill it in Excel',
-      text: 'Company details once on <b>Settings</b>, one row per employee on <b>Payslips</b>. The Net column works itself out and ✓ means the row is good.' },
-    { scene: 'drop', mood: 'look', kicker: 'Step 3', title: 'Drop it on this page',
-      text: 'Every row is checked in a second. Your own salary sheet works too; anything unclear is asked on the next screen.' },
-    { scene: 'save', mood: 'export', kicker: 'Step 4', title: 'Save your settings file',
-      text: 'Before exporting, keep a <b>settings file</b>: logo, company, design and columns in one small file. Next month, load it and you are done in a minute. If this browser is ever cleared, nothing is lost.',
+    { scene: 'fill', mood: 'design', title: 'Fill it in',
+      text: 'Company details once on <b>Settings</b>, one row per employee on <b>Payslips</b>. Add the <b>mobile number</b> for WhatsApp and the <b>email</b> for email.' },
+    { scene: 'drop', mood: 'look', title: 'Drop it on this page',
+      text: 'Every row is checked. Extra sheets such as overtime, attendance or an employee list are picked up; anything unclear is asked on the next screen.' },
+    { scene: 'view', mood: 'look', title: 'View each payslip',
+      text: 'Open any payslip before it goes out and check the name, the amounts and the net pay.' },
+    { scene: 'whatsapp', mood: 'send', title: 'Send on WhatsApp',
+      text: 'The chat opens with the right person and the message typed. The PDF is <b>locked with the Iqama number</b>; attach it and press Send.' },
+    { scene: 'email', mood: 'send', title: 'Or send by email',
+      text: 'One click makes a ready Outlook email with the payslip attached. Press Send. Before sending, the app offers to save your settings so next month is quick.',
       action: 'finish' }
   ];
+
 
   function tour(opts) {
     opts = opts || {};
@@ -227,9 +306,9 @@
         className: 'tour',
         label: 'Quick start',
         html:
-          '<div class="tour-top"><span class="tour-kicker">Quick start · 30 seconds</span><div class="tour-bar"><i></i></div></div>' +
+          '<div class="tour-top"><span class="tour-kicker">How it works</span><div class="tour-bar"><i></i></div></div>' +
           '<div class="tour-grid">' +
-          '<div class="tour-stage"><div class="tour-scene"></div></div>' +
+          '<div class="tour-stage"><div class="tour-scene"></div><button type="button" class="tour-replay" data-act="replay" aria-label="Play again">↻ Replay</button></div>' +
           '<div class="tour-side"><div class="tour-qasi">' + Art.mascot('q-own') + '</div><div class="tour-copy" aria-live="polite"></div></div>' +
           '</div>' +
           '<div class="tour-foot"><button type="button" class="btn btn-ghost btn-small" data-act="skip">Skip</button>' +
@@ -254,7 +333,6 @@
       }
 
       function finish() {
-        Art.confetti({ count: 120, y: innerHeight / 2 });
         m.close('done');
       }
 
@@ -268,12 +346,12 @@
         if (t.action === 'download') {
           actionHtml = '<div class="tour-action"><button type="button" class="btn btn-primary" data-act="download">' +
             (downloaded ? '✓ Downloaded, get it again' : 'Download template now') + '</button>' +
-            '<button type="button" class="btn btn-small btn-ghost" data-act="sample">or a filled example</button></div>';
+            '<button type="button" class="link" data-act="sample">or a filled example</button></div>';
         } else if (t.action === 'finish' && opts.canInstall && opts.canInstall()) {
           actionHtml = '<div class="tour-action"><button type="button" class="btn btn-small" data-act="install">Install as an app</button><span class="muted small">opens from the desktop, works offline</span></div>';
         }
         el.querySelector('.tour-copy').innerHTML =
-          '<span class="tour-step">' + esc(t.kicker) + ' of ' + TOUR.length + '</span>' +
+          '<span class="tour-step">Step ' + (i + 1) + ' of ' + TOUR.length + '</span>' +
           '<h2>' + esc(t.title) + '</h2><p>' + t.text + '</p>' + actionHtml;
         el.querySelector('.tour-copy').className = 'tour-copy enter-' + (dir || 'fwd');
         el.querySelector('.tour-bar i').style.width = ((i + 1) / TOUR.length * 100) + '%';
@@ -282,7 +360,7 @@
           d.classList.toggle('done', k < i);
         });
         el.querySelector('[data-act="back"]').disabled = i === 0;
-        el.querySelector('[data-act="next"]').textContent = i === TOUR.length - 1 ? 'Let’s go' : 'Next';
+        el.querySelector('[data-act="next"]').textContent = i === TOUR.length - 1 ? 'Start' : 'Next';
       }
 
       el.addEventListener('click', function (e) {
@@ -290,6 +368,7 @@
         if (!b) return;
         if (b.classList.contains('tour-dot')) { go(+b.getAttribute('data-k')); return; }
         var act = b.getAttribute('data-act');
+        if (act === 'replay') { var st = el.querySelector('.tour-scene'); st.innerHTML = SCENES[TOUR[i].scene](); return; }
         if (act === 'next') go(i + 1);
         else if (act === 'back') go(i - 1);
         else if (act === 'skip') m.close('skip');
@@ -320,7 +399,6 @@
         className: 'savepoint',
         label: 'Save point',
         html:
-          '<div class="sp-ribbon"><span>Save point</span></div>' +
           '<div class="sp-grid">' +
           '<div class="sp-stage">' + SCENES.save() + '<div class="sp-qasi">' + Art.mascot('q-own') + '</div></div>' +
           '<div class="sp-copy">' +
@@ -344,8 +422,7 @@
           m.el.classList.add('saved');
           m.el.querySelector('.qasi').setAttribute('data-mood', 'celebrate');
           b.textContent = '✓ Saved';
-          Art.confetti({ count: 140, y: innerHeight / 2.4 });
-          setTimeout(function () { m.close('saved'); }, 1300);
+          setTimeout(function () { m.close('saved'); }, 800);
         }, function () { b.disabled = false; });
       });
     });

@@ -57,10 +57,10 @@
     { key: 'workingDays', label: 'Working Days', group: 'attendance', type: 'number', example: 30, aliases: ['days worked', 'work days', 'paid days', 'days', 'present days', 'no of days', 'number of days', 'أيام العمل', 'عدد الأيام', 'ايام العمل', 'أيام الحضور'] },
     { key: 'absentDays', label: 'Absent Days', group: 'attendance', type: 'number', example: 0, aliases: ['absence days', 'absent', 'unpaid days', 'lop days', 'leave days', 'absences', 'أيام الغياب', 'ايام الغياب'] },
     { key: 'overtimeHours', label: 'Overtime Hours', group: 'attendance', type: 'number', example: 10, aliases: ['ot hours', 'overtime hrs', 'ot hrs', 'ot hr', 'overtime hour', 'ساعات إضافية', 'ساعات العمل الإضافي', 'ساعات الاضافي'] },
-    { key: 'basicSalary', label: 'Basic Salary', group: 'earning', required: true, type: 'money', example: 4000, aliases: ['basic', 'basic pay', 'base salary', 'basic wage', 'salary', 'wage', 'base pay', 'monthly salary', 'basic amount', 'الراتب الأساسي', 'الأساسي', 'الراتب', 'الراتب الاساسي', 'الاساسي'] },
-    { key: 'housing', label: 'Housing Allowance', group: 'earning', type: 'money', example: 1000, aliases: ['housing', 'hra', 'house allowance', 'accommodation allowance', 'accommodation', 'house rent', 'rent allowance', 'housing all', 'بدل السكن', 'السكن'] },
-    { key: 'transport', label: 'Transport Allowance', group: 'earning', type: 'money', example: 400, aliases: ['transport', 'transportation', 'transportation allowance', 'conveyance', 'travel allowance', 'transport all', 'car allowance', 'بدل النقل', 'بدل المواصلات', 'النقل', 'المواصلات'] },
-    { key: 'food', label: 'Food Allowance', group: 'earning', type: 'money', example: 300, aliases: ['food', 'meal allowance', 'meals', 'food all', 'بدل الطعام', 'بدل الإعاشة', 'الإعاشة', 'بدل الاعاشة'] },
+    { key: 'basicSalary', label: 'Basic Salary', group: 'earning', required: true, type: 'money', example: 4000, aliases: ['basic', 'basic pay', 'base salary', 'basic wage', 'salary', 'wage', 'base pay', 'monthly salary', 'basic amount', 'bsal', 'b sal', 'basic sal', 'b salary', 'sal', 'الراتب الأساسي', 'الأساسي', 'الراتب', 'الراتب الاساسي', 'الاساسي'] },
+    { key: 'housing', label: 'Housing Allowance', group: 'earning', type: 'money', example: 1000, aliases: ['housing', 'hra', 'house allowance', 'accommodation allowance', 'accommodation', 'house rent', 'rent allowance', 'housing all', 'ha', 'h all', 'hra amount', 'بدل السكن', 'السكن'] },
+    { key: 'transport', label: 'Transport Allowance', group: 'earning', type: 'money', example: 400, aliases: ['transport', 'transportation', 'transportation allowance', 'conveyance', 'travel allowance', 'transport all', 'car allowance', 'ta', 't all', 'بدل النقل', 'بدل المواصلات', 'النقل', 'المواصلات'] },
+    { key: 'food', label: 'Food Allowance', group: 'earning', type: 'money', example: 300, aliases: ['food', 'meal allowance', 'meals', 'food all', 'fa', 'f all', 'بدل الطعام', 'بدل الإعاشة', 'الإعاشة', 'بدل الاعاشة'] },
     { key: 'overtimePay', label: 'Overtime Pay', group: 'earning', type: 'money', example: 250, aliases: ['overtime', 'ot', 'ot pay', 'overtime amount', 'ot amount', 'overtime allowance', 'العمل الإضافي', 'الإضافي', 'أجر إضافي', 'الاضافي', 'بدل العمل الإضافي'] },
     { key: 'otherEarnings', label: 'Other Earnings', group: 'earning', type: 'money', example: 0, aliases: ['other allowance', 'other allowances', 'bonus', 'other earning', 'additions', 'other', 'others', 'incentive', 'incentives', 'commission', 'other income', 'other pay', 'other addition', 'بدلات أخرى', 'مكافأة', 'حوافز', 'بدلات اخرى'] },
     { key: 'gosi', label: 'GOSI Deduction', group: 'deduction', type: 'money', example: 0, aliases: ['gosi', 'social insurance', 'gosi employee', 'gosi ded', 'pension', 'التأمينات', 'التأمينات الاجتماعية', 'خصم التأمينات', 'التامينات'] },
@@ -116,7 +116,7 @@
   ];
 
   var EXAMPLE_ID_PREFIX = 'EXAMPLE';
-  var TOTAL_ROW_RE = /^(grand\s*)?(total|totals|sum|subtotal|sub\s*total|net\s*total|g\.?\s*total)\b/i;
+  var TOTAL_ROW_RE = /^(grand\s*|page\s*|sheet\s*|dept\.?\s*|department\s*)?(total|totals|sum|subtotal|sub\s*total|net\s*total|g\.?\s*total)\b|^(carried|brought)\s*(forward|fwd)|^[cb]\s*\/\s*f$|^(الإجمالي|الاجمالي|المجموع)$/i;
 
   // ---------------------------------------------------------------------------
   // Small helpers
@@ -130,7 +130,8 @@
       .replace(/ى/g, 'ي')
       .toLowerCase()
       .replace(/\(.*?\)/g, ' ') // drop "(SAR)" style suffixes
-      .replace(/[*#:]/g, ' ')
+      .replace(/#/g, ' no ') // "Emp#" -> "emp no", "S#" -> "s no"
+      .replace(/[*:]/g, ' ')
       .replace(/\./g, '') // "S.No" -> "sno", "O.T." -> "ot"
       .replace(/[^\p{L}\p{N}]+/gu, ' ')
       .replace(/\s+/g, ' ')
@@ -331,6 +332,7 @@
 
   // "October 2026" / "Oct-2026" / "10/2026" / "2026-10" -> "2026-10"; otherwise a slug of the text.
   var MONTH_INDEX = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12 };
+  var MONTH_WORDS = ['jan', 'january', 'feb', 'february', 'mar', 'march', 'apr', 'april', 'may', 'jun', 'june', 'jul', 'july', 'aug', 'august', 'sep', 'sept', 'september', 'oct', 'october', 'nov', 'november', 'dec', 'december'];
   var AR_MONTHS = [['يناير', 1], ['فبراير', 2], ['مارس', 3], ['ابريل', 4], ['أبريل', 4], ['مايو', 5], ['يونيو', 6], ['يوليو', 7], ['اغسطس', 8], ['أغسطس', 8], ['سبتمبر', 9], ['اكتوبر', 10], ['أكتوبر', 10], ['نوفمبر', 11], ['ديسمبر', 12]];
 
   // Month (and year when present) in a sheet name or pay period: "Oct 2026", "October", "10-2026", "أكتوبر 2026".
@@ -344,7 +346,7 @@
     for (var i = 0; i < words.length; i++) {
       var w = words[i];
       var idx = MONTH_INDEX[w.slice(0, 4)] || MONTH_INDEX[w.slice(0, 3)];
-      if (idx && /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/.test(w)) {
+      if (idx && MONTH_WORDS.indexOf(w) >= 0) {
         if (!year) { var y2 = low.match(new RegExp(w + "\\W*'?(\\d{2})(?!\\d)")); if (y2) year = 2000 + +y2[1]; }
         return { year: year, month: idx };
       }
@@ -1053,30 +1055,14 @@
     slip.name = cleanText(slip.fields.name);
     slip.isExample = slip.employeeId.toUpperCase().indexOf(EXAMPLE_ID_PREFIX) === 0 || /^example row/i.test(slip.name);
 
-    var gross = 0;
-    slip.earnings.forEach(function (e) { gross += e.amount || 0; });
-    var totalDed = 0;
-    slip.deductions.forEach(function (d) { totalDed += d.amount || 0; });
-    slip.gross = round2(gross);
-    slip.totalDeductions = round2(totalDed);
-    slip.net = round2(gross - totalDed);
     slip.netProvided = checks.netSalary != null ? checks.netSalary : null;
+    slip.grossProvided = checks.grossSalary != null ? checks.grossSalary : null;
+    slip.totalDeductionsProvided = checks.totalDeductions != null ? checks.totalDeductions : null;
 
     // Row validation
-    if (isBlank(slip.name)) slip.issues.push({ level: 'error', message: 'Employee name is empty.' });
+    if (isBlank(slip.name)) slip.issues.push({ level: 'error', code: 'no-name', message: 'Employee name is empty.' });
     if (slip.fields.basicSalary === 0) slip.issues.push({ level: 'warning', message: 'Basic salary is zero.' });
-    if (!slip.earnings.length || slip.gross === 0) slip.issues.push({ level: 'warning', message: 'No earnings found for this row.' });
-    if (slip.totalDeductions > slip.gross + 0.001) slip.issues.push({ level: 'error', message: 'Deductions (' + formatMoney(slip.totalDeductions) + ') exceed total earnings (' + formatMoney(slip.gross) + ').' });
-    else if (slip.net <= 0 && slip.gross > 0) slip.issues.push({ level: 'warning', message: 'Net salary is zero.' });
-    if (checks.netSalary != null && Math.abs(checks.netSalary - slip.net) > 0.005) {
-      slip.issues.push({ level: 'warning', message: 'Net salary in the file (' + formatMoney(checks.netSalary) + ') does not match the calculated net (' + formatMoney(slip.net) + '). The calculated value will be printed; check for an earning or deduction column that was not recognised.' });
-    }
-    if (checks.grossSalary != null && Math.abs(checks.grossSalary - slip.gross) > 0.005) {
-      slip.issues.push({ level: 'warning', message: 'Gross salary in the file (' + formatMoney(checks.grossSalary) + ') does not match the sum of earnings (' + formatMoney(slip.gross) + ').' });
-    }
-    if (checks.totalDeductions != null && Math.abs(checks.totalDeductions - slip.totalDeductions) > 0.005) {
-      slip.issues.push({ level: 'warning', message: 'Total deductions in the file (' + formatMoney(checks.totalDeductions) + ') does not match the sum of deductions (' + formatMoney(slip.totalDeductions) + ').' });
-    }
+    applyTotals(slip);
     var iban = String(slip.fields.iban || '').replace(/\s+/g, '').toUpperCase();
     if (iban) {
       slip.fields.iban = iban;
@@ -1100,6 +1086,32 @@
 
     slip.hasErrors = slip.issues.some(function (i) { return i.level === 'error'; });
     return slip;
+  }
+
+  // Totals and the checks that depend on them. Runs again when another sheet adds pay lines.
+  function applyTotals(slip) {
+    slip.issues = slip.issues.filter(function (i) { return i.code !== 'totals'; });
+    var gross = 0;
+    slip.earnings.forEach(function (e) { gross += e.amount || 0; });
+    var totalDed = 0;
+    slip.deductions.forEach(function (d) { totalDed += d.amount || 0; });
+    slip.gross = round2(gross);
+    slip.totalDeductions = round2(totalDed);
+    slip.net = round2(gross - totalDed);
+    var add = function (level, message) { slip.issues.push({ level: level, code: 'totals', message: message }); };
+    if (!slip.earnings.length || slip.gross === 0) add('warning', 'No earnings found for this row.');
+    if (slip.totalDeductions > slip.gross + 0.001) add('error', 'Deductions (' + formatMoney(slip.totalDeductions) + ') exceed total earnings (' + formatMoney(slip.gross) + ').');
+    else if (slip.net <= 0 && slip.gross > 0) add('warning', 'Net salary is zero.');
+    if (slip.netProvided != null && Math.abs(slip.netProvided - slip.net) > 0.005) {
+      add('warning', 'Net salary in the file (' + formatMoney(slip.netProvided) + ') does not match the calculated net (' + formatMoney(slip.net) + '). The calculated value will be printed; check for an earning or deduction column that was not recognised.');
+    }
+    if (slip.grossProvided != null && Math.abs(slip.grossProvided - slip.gross) > 0.005) {
+      add('warning', 'Gross salary in the file (' + formatMoney(slip.grossProvided) + ') does not match the sum of earnings (' + formatMoney(slip.gross) + ').');
+    }
+    if (slip.totalDeductionsProvided != null && Math.abs(slip.totalDeductionsProvided - slip.totalDeductions) > 0.005) {
+      add('warning', 'Total deductions in the file (' + formatMoney(slip.totalDeductionsProvided) + ') does not match the sum of deductions (' + formatMoney(slip.totalDeductions) + ').');
+    }
+    slip.hasErrors = slip.issues.some(function (i) { return i.level === 'error'; });
   }
 
   function fieldLabel(key) {
@@ -1160,7 +1172,14 @@
     if (!hasEarningCol) issues.push({ level: 'error', where: 'Payslips', code: 'missing-earnings', message: prefix + 'No salary column was found (Basic Salary or any earning). Map one of your columns under "Columns".' });
     else if (!seen.basicSalary && !columns.some(function (c) { return c.netOnly; })) issues.push({ level: 'warning', where: 'Payslips', code: 'missing-basic', message: prefix + 'No "Basic Salary" column was found. Earnings are taken from the other pay columns.' });
     if (!seen.employeeId) issues.push({ level: 'warning', where: 'Payslips', code: 'missing-id', message: prefix + 'No "Employee ID" column was found. IDs are generated from the row order (EMP-001, EMP-002…). Map a column to Employee ID if you have one.' });
+    if (!hasEarningCol) {
+      // nothing to pay: rows would only be empty payslips
+      sh.employees = 0;
+      return { slips: [], columns: columns, seen: seen };
+    }
 
+    var headerNorms = headerRow.map(function (h) { return isBlank(h) ? '' : normalizeHeader(h); });
+    var headerCount = headerNorms.filter(Boolean).length;
     var section = '';
     var slips = [];
     for (var i = 0; i < body.length; i++) {
@@ -1172,6 +1191,7 @@
         ctx.hiddenRows.push({ sheet: sh.name, row: rowNo, label: rowLabel(raw, mapping) });
         continue;
       }
+      if (headerCount >= 2 && isRepeatedHeader(raw, headerNorms, headerCount)) { ctx.skipped.headers++; continue; }
       var nonBlank = raw.filter(function (v) { return !isBlank(v); });
       if (nonBlank.length === 1 && typeof nonBlank[0] === 'string' && !looksNumeric(nonBlank[0]) && !TOTAL_ROW_RE.test(cleanText(nonBlank[0])) && !EXCEL_ERROR_RE.test(cleanText(nonBlank[0]))) {
         // A lone label such as "PROJECTS DEPARTMENT": a section heading, used as department for the rows below.
@@ -1187,9 +1207,9 @@
         continue;
       }
       slip.sheet = sh.name;
-      slip.rowRef = ctx.combined ? sh.name + ' · ' + rowNo : String(rowNo);
+      slip.rowRef = sh.refs ? sh.refs[i] : ctx.combined ? sh.name + ' · ' + rowNo : String(rowNo);
       if (!slip.fields.department && section) slip.fields.department = section;
-      else if (!slip.fields.department && ctx.combined) slip.fields.department = sh.name;
+      else if (!slip.fields.department && ctx.combined && !sh.vertical) slip.fields.department = sh.name;
       ctx.seq++;
       if (!seen.employeeId || isBlank(slip.employeeId)) {
         slip.employeeId = 'EMP-' + String(ctx.seq).padStart(3, '0');
@@ -1202,9 +1222,455 @@
     return { slips: slips, columns: columns, seen: seen };
   }
 
+  // A header repeated further down (reports printed page by page).
+  function isRepeatedHeader(raw, headerNorms, headerCount) {
+    var same = 0;
+    for (var c = 0; c < headerNorms.length; c++) {
+      if (headerNorms[c] && !isBlank(raw[c]) && typeof raw[c] === 'string' && normalizeHeader(raw[c]) === headerNorms[c]) same++;
+    }
+    return same >= Math.max(2, Math.ceil(headerCount * 0.6));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Sheet roles. Besides the payroll, a workbook often has sheets that add to it: overtime,
+  // attendance, loans/deductions, an employee list with contacts and Iqama numbers. Summaries,
+  // pivots and notes are left out.
+  // ---------------------------------------------------------------------------
+  var ROLE_LABELS = { payroll: 'Payroll', overtime: 'Overtime', attendance: 'Attendance', deductions: 'Deductions / loans', employees: 'Employee details', summary: 'Summary', other: 'Not used' };
+  var SUPPLEMENT_ROLES = ['overtime', 'attendance', 'deductions', 'employees'];
+  var ROLE_HINTS = [
+    [/overtime|\bot\b|اضافي/, 'overtime'],
+    [/attend|time\s*sheet|timesheet|presence|حضور|دوام/, 'attendance'],
+    [/loan|advance|deduct|penalt|\bfines?\b|سلف|خصم|جزاء/, 'deductions'],
+    [/employee|staff|worker|contact|master|personnel|موظف|العمال|بيانات/, 'employees'],
+    [/summary|pivot|recap|dashboard|ملخص/, 'summary']
+  ];
+
+  function roleHint(name) {
+    var n = normalizeHeader(name);
+    for (var i = 0; i < ROLE_HINTS.length; i++) if (ROLE_HINTS[i][0].test(n)) return ROLE_HINTS[i][1];
+    return null;
+  }
+
+  // Column headers of a timesheet grid: 1…31, dates, "Day 1", "D1".
+  function isDayHeader(h) {
+    if (h instanceof Date) return true;
+    if (typeof h === 'number') return h >= 1 && h <= 31 && Math.floor(h) === h;
+    if (typeof h !== 'string') return false;
+    var m = normalizeHeader(h).match(/^(?:day|d|يوم)?\s*(\d{1,2})(?:st|nd|rd|th)?$/);
+    return !!m && +m[1] >= 1 && +m[1] <= 31;
+  }
+
+  function idKey(v) {
+    return toAsciiDigits(cleanText(v)).toUpperCase().replace(/\s+/g, '');
+  }
+
+  // "EMP-001", "001" and "1" are the same employee number when nothing else matches.
+  function looseIdKey(v) {
+    var k = idKey(v).replace(/[^0-9A-Z]/g, '');
+    var digits = k.replace(/\D/g, '');
+    return digits ? String(+digits) : k;
+  }
+
+  function nameKey(v) {
+    return normalizeHeader(v);
+  }
+
+  function looseNameKey(v) {
+    return normalizeHeader(v).split(' ').sort().join(' ');
+  }
+
+  // What a sheet contains, judged from its header row and values.
+  function profileSheet(sh, overrides) {
+    var head = sh.aoa[sh.headerIdx] || [];
+    var body = sh.aoa.slice(sh.headerIdx + 1).filter(function (r) { return r && !r.every(isBlank); });
+    var mapped = mapHeaders(head, groupRowHints(sh.aoa, sh.headerIdx), overrides, [], body.slice(0, 30), '');
+    var p = { keys: {}, earn: 0, otMoney: 0, ded: 0, info: 0, contact: 0, att: 0, dayCols: 0, rows: body.length, mapped: mapped, people: [] };
+    mapped.columns.forEach(function (c) {
+      if (c.kind === 'column') {
+        p.keys[c.def.key] = true;
+        var g = c.def.group;
+        if (g === 'earning') { if (c.def.key === 'overtimePay') p.otMoney++; else p.earn++; }
+        else if (g === 'deduction') p.ded++;
+        else if (g === 'contact') p.contact++;
+        else if (g === 'attendance') p.att++;
+        else if (g === 'info' && c.def.key !== 'name' && c.def.key !== 'employeeId') p.info++;
+      } else if (c.kind === 'earning') p.earn++;
+      else if (c.kind === 'deduction') p.ded++;
+    });
+    p.dayCols = head.filter(isDayHeader).length;
+    var idCol = -1, nameCol = -1;
+    mapped.mapping.forEach(function (m, i) {
+      if (m && m.kind === 'column' && m.def.key === 'employeeId' && idCol < 0) idCol = i;
+      if (m && m.kind === 'column' && m.def.key === 'name' && nameCol < 0) nameCol = i;
+    });
+    body.forEach(function (r) {
+      var k = idCol >= 0 && !isBlank(r[idCol]) ? 'id:' + idKey(r[idCol]) : nameCol >= 0 && !isBlank(r[nameCol]) ? 'nm:' + nameKey(r[nameCol]) : '';
+      if (k) p.people.push(k);
+    });
+    return p;
+  }
+
+  function classifySheet(sh, overrides) {
+    var p = sh.profile = profileSheet(sh, overrides);
+    var k = p.keys;
+    var who = !!(k.name || k.employeeId || k.nationalId);
+    var hint = roleHint(sh.name);
+    var otCols = p.otMoney + (k.overtimeHours ? 1 : 0);
+    var money = p.earn + p.otMoney + p.ded + (k.netSalary ? 1 : 0);
+    var role = 'other';
+    if (!p.rows) role = 'other';
+    else if (who && p.dayCols >= 10) role = 'attendance';
+    else if (who && hint === 'overtime' && otCols && p.earn <= 1 && !k.netSalary) role = 'overtime';
+    else if (who && hint === 'deductions' && p.ded && !k.netSalary && p.earn <= 1) role = 'deductions';
+    else if (who && (p.earn || k.netSalary) && hint !== 'summary') role = 'payroll';
+    else if (who && otCols) role = 'overtime';
+    else if (who && p.ded) role = 'deductions';
+    else if (who && p.att) role = 'attendance';
+    else if (who && p.contact + p.info > 0) role = 'employees';
+    else if (money || hint === 'summary') role = 'summary';
+    sh.role = role;
+    sh.isData = role === 'payroll';
+    return role;
+  }
+
+  // Sideways tables (pay items in rows, one column per employee) and payslip-style forms
+  // ("Employee Name | Ali", "Basic Salary | 3000") turned into normal rows.
+  function toVertical(sh, overrides) {
+    var aoa = sh.aoa;
+    var width = aoa.reduce(function (w, r) { return Math.max(w, (r || []).length); }, 0);
+    for (var lc = 0; lc < Math.min(width - 1, 3); lc++) {
+      var labels = [];
+      var keys = {};
+      var money = 0;
+      for (var r = 0; r < aoa.length; r++) {
+        var row = aoa[r] || [];
+        var lab = row[lc];
+        if (isBlank(lab) || typeof lab !== 'string') continue;
+        var hasValue = false;
+        for (var c = lc + 1; c < row.length; c++) if (!isBlank(row[c])) { hasValue = true; break; }
+        if (!hasValue) continue;
+        var norm = normalizeHeader(lab);
+        if (SETTINGS_LOOKUP[norm] && !COLUMN_LOOKUP[norm]) continue; // company name, pay period…
+        var t = overrides && overrides[norm] ? overrides[norm] : guessHeader(lab);
+        if (!t || t.kind === 'ignored') continue;
+        if (t.kind === 'column') {
+          if (keys[t.key]) continue;
+          keys[t.key] = true;
+          var def = COLUMN_BY_KEY[t.key];
+          if (def && def.type === 'money' && (def.group !== 'check' || def.key === 'netSalary')) money++;
+        } else money++;
+        labels.push({ r: r, label: lab });
+      }
+      if (labels.length < 3 || !money || !(keys.name || keys.employeeId)) {
+        if (!(labels.length >= 2 && money && !keys.name)) continue;
+      }
+      var valueCols = [];
+      for (var c2 = lc + 1; c2 < width; c2++) {
+        var filled = labels.filter(function (l) { return !isBlank((aoa[l.r] || [])[c2]); }).length;
+        if (filled >= Math.max(2, Math.ceil(labels.length / 2))) valueCols.push(c2);
+      }
+      if (!valueCols.length) continue;
+      var nameRow = null;
+      if (!keys.name) {
+        // names written across the top ("| Ali Hassan | Omar Khan |")
+        for (var r2 = 0; r2 < labels[0].r; r2++) {
+          var top = aoa[r2] || [];
+          if (valueCols.every(function (c3) { return typeof top[c3] === 'string' && !isBlank(top[c3]) && !looksNumeric(top[c3]); })) { nameRow = r2; break; }
+        }
+        if (nameRow == null && !keys.employeeId) continue;
+      }
+      if (labels.length + (nameRow != null ? 1 : 0) < 3) continue;
+      var header = labels.map(function (l) { return cleanText(l.label); });
+      if (nameRow != null) header.unshift('Employee Name');
+      var records = valueCols.map(function (c4) {
+        var vals = labels.map(function (l) { return (aoa[l.r] || [])[c4]; });
+        if (nameRow != null) vals.unshift(aoa[nameRow][c4]);
+        return vals;
+      });
+      return {
+        aoa: [header].concat(records),
+        refs: valueCols.map(function (c5) { return sh.name + (valueCols.length > 1 ? ' · column ' + XLSXRef.utils.encode_col(c5) : ''); })
+      };
+    }
+    return null;
+  }
+
+  // Sheets listing the same people as the main payroll are not combined with it (that would duplicate
+  // everyone): they are read as overtime, deductions or employee details instead.
+  function demoteOverlaps(payroll) {
+    if (payroll.length < 2) return;
+    var monthly = payroll.filter(function (s) { return s.month; }).length;
+    if (monthly >= 2 && monthly >= Math.ceil(payroll.length / 2)) return; // monthly sheets list the same people on purpose
+    var weight = function (s) { return s.profile.earn * 2 + (s.profile.keys.netSalary ? 3 : 0) + (s.preferred ? 5 : 0) + (roleHint(s.name) ? -2 : 0) + s.profile.rows * 0.01; };
+    var main = payroll.slice().sort(function (a, b) { return weight(b) - weight(a); })[0];
+    var mainSet = {};
+    main.profile.people.forEach(function (k) { mainSet[k] = true; });
+    payroll.forEach(function (sh) {
+      if (sh === main || !sh.profile.people.length) return;
+      var common = sh.profile.people.filter(function (k) { return mainSet[k]; }).length;
+      if (common / sh.profile.people.length < 0.5) return;
+      var p = sh.profile;
+      sh.role = p.otMoney || p.keys.overtimeHours ? 'overtime' : p.ded > p.earn ? 'deductions' : p.contact + p.info > 0 ? 'employees' : 'other';
+      sh.isData = false;
+    });
+  }
+
+  // P / A / hours written day by day.
+  var PRESENT_MARK = /^(p|pr|prs|present|y|yes|ok|✓|✔|√|ح|حاضر|حضور)$/i;
+  var ABSENT_MARK = /^(a|ab|abs|absent|u|ul|unpaid|غ|غائب|غياب)$/i;
+  function gridCounts(raw, dayIdx) {
+    var out = { present: 0, absent: 0, hours: 0 };
+    dayIdx.forEach(function (i) {
+      var v = raw[i];
+      if (isBlank(v)) return;
+      if (typeof v === 'number') {
+        if (v > 0) { out.present++; out.hours += v; }
+        return;
+      }
+      var t = String(v).trim();
+      if (looksNumeric(t)) { var n = parseNumber(t).value; if (n > 0) { out.present++; out.hours += n; } }
+      else if (PRESENT_MARK.test(t)) out.present++;
+      else if (ABSENT_MARK.test(t)) out.absent++;
+    });
+    return out;
+  }
+
+  // One record per row of a supplement sheet: who it is, details to fill in, pay lines.
+  function supplementRows(sh, ctx) {
+    var mapping = sh.profile.mapped.mapping;
+    var body = sh.aoa.slice(sh.headerIdx + 1);
+    inspectColumns(mapping, body, { decimalComma: [], negated: [], mdy: [], mixedDates: [] });
+    var dayIdx = [];
+    (sh.aoa[sh.headerIdx] || []).forEach(function (h, i) { if (isDayHeader(h)) dayIdx.push(i); });
+    var recs = [];
+    body.forEach(function (raw, i) {
+      if (!raw || raw.every(isBlank)) return;
+      if (sh.hidden[sh.headerIdx + 1 + i + sh.rowOffset] && !ctx.includeHidden) return;
+      if (isTotalsRow(raw, mapping)) return;
+      var rec = { id: '', nid: '', name: '', fill: {}, money: [] };
+      mapping.forEach(function (m, idx) {
+        if (!m || m.kind === 'ignored') return;
+        var v = raw[idx];
+        if (isBlank(v)) return;
+        var pn;
+        if (m.kind === 'earning' || m.kind === 'deduction') {
+          pn = parseNumber(v, { decimalComma: m.decimalComma });
+          if (!pn.error && pn.value) rec.money.push({ kind: m.kind, key: 'custom', label: m.label, amount: Math.abs(pn.value) });
+          return;
+        }
+        var d = m.def;
+        if (d.key === 'employeeId') { rec.id = toAsciiDigits(cleanText(v)); return; }
+        if (d.key === 'name') { rec.name = m.namePart ? [rec.name, cleanText(v)].filter(Boolean).join(' ') : cleanText(v); rec.fill.name = rec.name; return; }
+        if (d.group === 'check' || d.key === 'payslipPassword' || d.key === 'remarks') return;
+        if (d.group === 'earning' || d.group === 'deduction') {
+          pn = parseNumber(v, { decimalComma: m.decimalComma });
+          if (!pn.error && pn.value) rec.money.push({ kind: d.group, key: d.key, label: d.label, amount: Math.abs(pn.value) });
+          return;
+        }
+        if (d.type === 'number') { pn = parseNumber(v); if (pn.value != null && !pn.error) rec.fill[d.key] = pn.value; return; }
+        if (d.type === 'date') { var rd = readDate(v, m.dateOrder); if (rd.text) { rec.fill[d.key] = rd.text; if (d.key === 'dob') rec.fill.dobDate = isoDate(rd.date); } return; }
+        if (d.type === 'phone') { var ph = normalizePhone(v, ctx.countryCode); if (!ph.error && ph.value) rec.fill.mobile = ph.value; return; }
+        if (d.type === 'email') { var em = normalizeEmail(v); if (!em.error && em.value) rec.fill.email = em.value; return; }
+        var txt = cleanText(v);
+        if (EXCEL_ERROR_RE.test(txt)) return;
+        if (d.key === 'nationalId' || d.key === 'iban') txt = toAsciiDigits(txt).replace(/\s+/g, d.key === 'iban' ? '' : ' ');
+        if (d.key === 'nationalId') rec.nid = txt;
+        rec.fill[d.key] = txt;
+      });
+      if (dayIdx.length >= 10) {
+        var g = gridCounts(raw, dayIdx);
+        if (rec.fill.workingDays == null) rec.fill.workingDays = g.present;
+        if (rec.fill.absentDays == null) rec.fill.absentDays = g.absent;
+      }
+      if (rec.id || rec.nid || rec.name) recs.push(rec);
+    });
+    return recs;
+  }
+
+  // Pairs supplement rows with payslips by employee number, Iqama or name (rows of the same person summed).
+  function matchSupplement(slips, recs, kind) {
+    var getS = kind === 'id' ? function (s) { return s.generatedId ? '' : s.employeeId; } : kind === 'nid' ? function (s) { return s.fields.nationalId; } : function (s) { return s.name; };
+    var getR = kind === 'id' ? function (r) { return r.id; } : kind === 'nid' ? function (r) { return r.nid; } : function (r) { return r.name; };
+    var exact = kind === 'name' ? nameKey : idKey;
+    var loose = kind === 'name' ? looseNameKey : looseIdKey;
+    var groups = {};
+    var order = [];
+    recs.forEach(function (r) {
+      var k = exact(getR(r));
+      if (!k) return;
+      if (!groups[k]) { groups[k] = { label: r.name || r.id || r.nid, raw: getR(r), fill: {}, money: {} }; order.push(k); }
+      var g = groups[k];
+      Object.keys(r.fill).forEach(function (f) {
+        var v = r.fill[f];
+        if (typeof v === 'number' && typeof g.fill[f] === 'number' && f !== 'workingDays' && f !== 'absentDays') g.fill[f] = round2(g.fill[f] + v);
+        else if (typeof v === 'number' && typeof g.fill[f] === 'number') g.fill[f] += v;
+        else if (g.fill[f] == null || g.fill[f] === '') g.fill[f] = v;
+      });
+      r.money.forEach(function (l) {
+        var key = l.kind + '|' + l.label;
+        if (g.money[key]) g.money[key].amount = round2(g.money[key].amount + l.amount);
+        else g.money[key] = { kind: l.kind, key: l.key, label: l.label, amount: l.amount };
+      });
+    });
+    var bySlip = {};
+    slips.forEach(function (s, i) { var k = exact(getS(s)); if (k) (bySlip[k] = bySlip[k] || []).push(i); });
+    var pairs = [];
+    var taken = {};
+    var done = {};
+    order.forEach(function (k) {
+      if (bySlip[k] && bySlip[k].length === 1) { pairs.push([bySlip[k][0], groups[k]]); taken[bySlip[k][0]] = true; done[k] = true; }
+    });
+    // second pass: "EMP-001" = "1", "Hassan Ahmed" = "Ahmed Hassan"; only where it is unambiguous
+    var looseSlips = {};
+    slips.forEach(function (s, i) { if (taken[i]) return; var k = loose(getS(s)); if (k) (looseSlips[k] = looseSlips[k] || []).push(i); });
+    var looseRecs = {};
+    order.forEach(function (k) { if (done[k]) return; var lk = loose(groups[k].raw); if (lk) (looseRecs[lk] = looseRecs[lk] || []).push(k); });
+    Object.keys(looseRecs).forEach(function (lk) {
+      if (looseRecs[lk].length === 1 && looseSlips[lk] && looseSlips[lk].length === 1) {
+        pairs.push([looseSlips[lk][0], groups[looseRecs[lk][0]]]);
+        done[looseRecs[lk][0]] = true;
+      }
+    });
+    return { kind: kind, pairs: pairs, total: order.length, unmatched: order.filter(function (k) { return !done[k]; }).map(function (k) { return groups[k].label; }) };
+  }
+
+  // Brings overtime, attendance, deductions and employee details from the other sheets into the payslips.
+  // Details only fill empty fields. Amounts are switched on automatically only when the payroll's own net
+  // salary column confirms them; otherwise the user decides (options.supplements[sheet] = true/false).
+  function applySupplements(slips, sheets, ctx, options, seenAll, issues) {
+    var user = options.supplements || {};
+    return sheets.map(function (sh) {
+      var info = { sheet: sh.name, role: sh.role, roleLabel: ROLE_LABELS[sh.role], keyBy: null, matched: 0, total: 0, unmatched: [], fields: [], money: [], enabled: false, auto: true, reason: '' };
+      if (sh.skipReason) { info.reason = sh.skipReason; return info; }
+      var recs = supplementRows(sh, ctx);
+      var best = null;
+      [['id', function (s) { return !s.generatedId && s.employeeId; }, function (r) { return r.id; }],
+        ['nid', function (s) { return s.fields.nationalId; }, function (r) { return r.nid; }],
+        ['name', function (s) { return s.name; }, function (r) { return r.name; }]].forEach(function (k) {
+        if (!slips.some(k[1]) || !recs.some(k[2])) return;
+        var m = matchSupplement(slips, recs, k[0]);
+        if (!best || m.pairs.length > best.pairs.length) best = m;
+      });
+      info.total = best ? best.total : recs.length;
+      if (!best || !best.pairs.length) {
+        info.reason = recs.length ? 'nobody in it matches the payroll by employee number or name' : 'no rows found';
+        info.unmatched = best ? best.unmatched : [];
+        return info;
+      }
+      info.keyBy = best.kind;
+      info.matched = best.pairs.length;
+      info.unmatched = best.unmatched;
+      var fillKeys = {};
+      var moneyKeys = {};
+      best.pairs.forEach(function (pr) {
+        var s = slips[pr[0]];
+        Object.keys(pr[1].fill).forEach(function (f) {
+          if (f === 'dobDate') return;
+          if (s.fields[f] == null || s.fields[f] === '') fillKeys[f] = true;
+        });
+        Object.keys(pr[1].money).forEach(function (mk) {
+          var l = pr[1].money[mk];
+          var already = (l.key !== 'custom' && seenAll[l.key]) || s.earnings.concat(s.deductions).some(function (x) { return normalizeHeader(x.label) === normalizeHeader(l.label); });
+          if (!already) moneyKeys[mk] = l;
+        });
+      });
+      info.fields = Object.keys(fillKeys).map(fieldLabel);
+      info.money = Object.keys(moneyKeys).map(function (mk) { return moneyKeys[mk].label; }).filter(function (v, i, a) { return a.indexOf(v) === i; });
+      var deltaFor = function (g) {
+        var d = 0;
+        Object.keys(g.money).forEach(function (mk) { if (moneyKeys[mk]) d += g.money[mk].kind === 'earning' ? g.money[mk].amount : -g.money[mk].amount; });
+        return d;
+      };
+      var defaultOn;
+      if (info.money.length) {
+        var withNet = 0, before = 0, after = 0;
+        best.pairs.forEach(function (pr) {
+          var s = slips[pr[0]];
+          if (s.netProvided == null) return;
+          withNet++;
+          if (Math.abs(s.net - s.netProvided) < 0.01) before++;
+          if (Math.abs(s.net + deltaFor(pr[1]) - s.netProvided) < 0.01) after++;
+        });
+        defaultOn = withNet > 0 && after > before;
+        info.confirmed = defaultOn;
+        info.reason = !withNet ? 'there is no net salary column to confirm these amounts' : defaultOn ? 'the net salary in the payroll only adds up with these amounts' : 'the net salary in the payroll already adds up without them';
+      } else {
+        defaultOn = info.fields.length > 0;
+        info.reason = defaultOn ? 'adds details the payroll does not have' : 'nothing new for the payroll';
+      }
+      info.enabled = typeof user[sh.name] === 'boolean' ? user[sh.name] : defaultOn;
+      info.auto = typeof user[sh.name] !== 'boolean';
+      if (!info.enabled) {
+        if (info.money.length && !withNetConfirmed(info)) {
+          issues.push({ level: 'warning', where: 'Payslips', code: 'supplement-suggest', message: 'Sheet "' + sh.name + '" has ' + info.money.join(', ') + ' for ' + info.matched + ' employee' + (info.matched === 1 ? '' : 's') + ' that ' + (info.matched === 1 ? 'is' : 'are') + ' not on the payslips (' + info.reason + '). If it should be paid, switch "' + sh.name + '" on at the top.' });
+        }
+        return info;
+      }
+      best.pairs.forEach(function (pr) {
+        var s = slips[pr[0]];
+        var g = pr[1];
+        Object.keys(g.fill).forEach(function (f) {
+          if (!fillKeys[f] && f !== 'dobDate') return;
+          if (s.fields[f] == null || s.fields[f] === '') s.fields[f] = g.fill[f];
+        });
+        if (s.fields.name && !s.name) {
+          s.name = cleanText(s.fields.name);
+          s.issues = s.issues.filter(function (x) { return x.code !== 'no-name'; });
+        }
+        var added = false;
+        Object.keys(g.money).forEach(function (mk) {
+          if (!moneyKeys[mk]) return;
+          var l = g.money[mk];
+          (l.kind === 'earning' ? s.earnings : s.deductions).push({ key: l.key, label: l.label, amount: round2(l.amount), from: sh.name });
+          if (l.key !== 'custom') s.fields[l.key] = round2((+s.fields[l.key] || 0) + l.amount);
+          added = true;
+        });
+        if (added) applyTotals(s);
+        s.hasErrors = s.issues.some(function (x) { return x.level === 'error'; });
+      });
+      var what = info.money.concat(info.fields).slice(0, 4).join(', ');
+      issues.push({ level: 'info', where: 'Payslips', code: 'supplement', message: 'Added ' + what + ' from sheet "' + sh.name + '" for ' + info.matched + ' employee' + (info.matched === 1 ? '' : 's') + ' (matched by ' + { id: 'employee number', nid: 'Iqama / ID number', name: 'name' }[info.keyBy] + ')' + (info.money.length && info.auto ? ': ' + info.reason : '') + '.' });
+      if (info.unmatched.length && sh.role !== 'employees') {
+        issues.push({ level: 'warning', where: 'Payslips', code: 'supplement-unmatched', message: info.unmatched.length + ' ' + (info.unmatched.length === 1 ? 'person' : 'people') + ' in sheet "' + sh.name + '" ' + (info.unmatched.length === 1 ? 'is' : 'are') + ' not in the payroll: ' + info.unmatched.slice(0, 5).join(', ') + (info.unmatched.length > 5 ? ', …' : '') + '. They get no payslip.' });
+      }
+      return info;
+    });
+
+    function withNetConfirmed(info) { return info.confirmed; }
+  }
+
+  // Reads CSV text: guesses the separator (, ; tab |) and keeps every value as typed, so
+  // "3.000,50" and IDs like "001" are read by our own rules.
+  function readCsv(XLSX, text) {
+    text = String(text || '').replace(/^﻿/, '');
+    var lines = text.split(/\r?\n/).filter(function (l) { return l.trim(); }).slice(0, 12);
+    var count = function (line, sep) {
+      var n = 0, q = false;
+      for (var i = 0; i < line.length; i++) {
+        if (line[i] === '"') q = !q;
+        else if (!q && line[i] === sep) n++;
+      }
+      return n;
+    };
+    var best = ',', bestScore = -1;
+    [',', ';', '\t', '|'].forEach(function (sep) {
+      var counts = lines.map(function (l) { return count(l, sep); });
+      var min = counts.length ? Math.min.apply(null, counts) : 0;
+      var score = min > 0 ? min * 10 + (counts.every(function (c) { return c === counts[0]; }) ? 5 : 0) : 0;
+      if (score > bestScore) { bestScore = score; best = sep; }
+    });
+    return XLSX.read(text, { type: 'string', FS: best, raw: true });
+  }
+
   // Decides which sheets hold the employees: one sheet, all sheets combined, or the right month.
   function chooseSheets(sheets, options, payPeriod, issues) {
     var data = sheets.filter(function (s) { return s.isData; });
+    if (!data.length && !(options.sheet && options.sheet !== 'auto')) {
+      // no payroll sheet: show the most promising one so its columns can be mapped by hand
+      var fallback = sheets.slice().sort(function (a, b) { return (b.score || 0) - (a.score || 0) || b.rows - a.rows; }).filter(function (s) { return s.rows > 0; })[0] || sheets[0];
+      return { used: fallback ? [fallback] : [], mode: 'single', how: 'fallback' };
+    }
     if (options.sheet && options.sheet !== 'auto') {
       if (options.sheet === '__all__') return { used: data.length ? data : sheets.slice(0, 1), mode: 'combined', how: 'chosen' };
       var one = sheets.filter(function (s) { return s.name === options.sheet; })[0];
@@ -1216,7 +1682,7 @@
     }
     var preferred = data.filter(function (s) { return s.preferred; })[0];
     var months = data.filter(function (s) { return s.month; });
-    if (months.length >= Math.ceil(data.length / 2)) {
+    if (months.length >= 2 && months.length >= Math.ceil(data.length / 2)) {
       var want = monthInfo(payPeriod);
       var match = want && months.filter(function (s) { return s.month.month === want.month && (!s.month.year || !want.year || s.month.year === want.year); })[0];
       var chosen = match;
@@ -1256,19 +1722,38 @@
     if (!candidates.length) candidates = visible.length ? visible : wb.SheetNames.slice();
     var forcedSheet = options.sheet && options.sheet !== 'auto' && options.sheet !== '__all__' ? options.sheet : null;
     var sheets = candidates.map(function (n) {
-      return analyzeSheet(XLSX, wb, n, n === forcedSheet ? options.headerRow : null);
+      var sh = analyzeSheet(XLSX, wb, n, n === forcedSheet ? options.headerRow : null);
+      classifySheet(sh, options.overrides);
+      if (!sh.forced && ['payroll', 'attendance', 'overtime', 'deductions'].indexOf(sh.role) < 0) {
+        var v = toVertical(sh, options.overrides);
+        if (v) {
+          sh.aoa = v.aoa;
+          sh.refs = v.refs;
+          sh.vertical = true;
+          sh.headerIdx = 0;
+          sh.rowOffset = 0;
+          sh.headerRow = 1;
+          sh.hidden = {};
+          sh.rows = v.aoa.length - 1;
+          classifySheet(sh, options.overrides);
+        }
+      }
+      return sh;
     });
-    if (forcedSheet && options.headerRow == null) {
-      // nothing forced
+    if (!sheets.some(function (s) { return s.role === 'payroll'; })) {
+      // a lone "Overtime" or "Loans" sheet that also carries salaries is the payroll after all
+      sheets.forEach(function (s) { if ((s.role === 'overtime' || s.role === 'deductions') && s.profile.earn) { s.role = 'payroll'; s.isData = true; } });
     }
+    demoteOverlaps(sheets.filter(function (s) { return s.role === 'payroll'; }));
     var choice = chooseSheets(sheets, options, options.payPeriod || settings.payPeriod, issues);
     var ctx = {
       issues: issues, overrides: options.overrides, countryCode: settings.countryCode,
       includeHidden: !!options.includeHidden, combined: choice.mode === 'combined' && choice.used.length > 1,
-      seq: 0, hiddenRows: [], sections: [], skipped: { totals: 0, unlabelled: 0, example: 0 },
+      seq: 0, hiddenRows: [], sections: [], skipped: { totals: 0, unlabelled: 0, example: 0, headers: 0 },
       notes: { decimalComma: [], negated: [], mdy: [], mixedDates: [] }
     };
     var slips = [];
+    var supplements = [];
     var columnsByNorm = {};
     var columns = [];
     var seenAll = {};
@@ -1296,6 +1781,17 @@
         ctx.issues = issues;
       }
 
+      // Other sheets that add to the payroll (same month only when sheets are monthly)
+      var usedMonth = choice.used.length === 1 ? choice.used[0].month : null;
+      var extra = sheets.filter(function (s) { return choice.used.indexOf(s) < 0 && SUPPLEMENT_ROLES.indexOf(s.role) >= 0; });
+      extra.forEach(function (s) {
+        if (usedMonth && s.month && (s.month.month !== usedMonth.month || (s.month.year && usedMonth.year && s.month.year !== usedMonth.year))) s.skipReason = 'it is for another month';
+      });
+      supplements = slips.length ? applySupplements(slips, extra, ctx, options, seenAll, issues) : [];
+      if (!seenAll.name && slips.length && slips.every(function (s) { return s.name; })) {
+        issues = issues.filter(function (i) { return i.code !== 'missing-name'; });
+      }
+
       if (ctx.combined) {
         issues.push({ level: 'info', where: 'Payslips', code: 'combined', message: 'Combined ' + choice.used.length + ' sheets: ' + choice.used.map(function (s) { return s.name + ' (' + s.employees + ')'; }).join(', ') + '. Pick one sheet at the top to use only that one.' });
       } else if (choice.used[0] && normalizeHeader(choice.used[0].name) !== normalizeHeader(SHEET_PAYSLIPS) && choice.mode !== 'month') {
@@ -1320,6 +1816,12 @@
       var skipped = ctx.skipped;
       if (skipped.totals || skipped.unlabelled) {
         issues.push({ level: 'info', where: 'Payslips', message: (skipped.totals + skipped.unlabelled) + ' row' + (skipped.totals + skipped.unlabelled === 1 ? '' : 's') + ' without an employee (totals or notes) were skipped.' });
+      }
+      if (skipped.headers) {
+        issues.push({ level: 'info', where: 'Payslips', code: 'repeated-header', message: 'The header row appears ' + skipped.headers + ' more time' + (skipped.headers === 1 ? '' : 's') + ' further down (printed pages); those rows were skipped.' });
+      }
+      if (choice.used.some(function (s) { return s.vertical; })) {
+        issues.push({ level: 'info', where: 'Payslips', code: 'vertical', message: 'Pay items are listed down the sheet with one column per employee' + (choice.used.length > 1 ? ' (or one sheet per employee)' : '') + '; they were read that way.' });
       }
 
       // Duplicate IDs
@@ -1361,6 +1863,22 @@
       }
     }
 
+    if (choice.how === 'fallback') {
+      var roles = sheets.map(function (s) { return s.role; });
+      var kind = roles.indexOf('attendance') >= 0 ? 'attendance-only' : roles.indexOf('employees') >= 0 ? 'no-salary' : 'not-payroll';
+      var seenSheets = sheets.filter(function (s) { return s.rows; }).slice(0, 3).map(function (s) {
+        var cells = (s.aoa[s.headerIdx] || []).filter(function (v) { return !isBlank(v); }).slice(0, 4).map(cleanText);
+        return '"' + s.name + '"' + (cells.length ? ' (' + cells.join(', ') + (s.aoa[s.headerIdx].length > 4 ? '…' : '') + ')' : '');
+      }).join(', ');
+      var msg = {
+        'attendance-only': 'This file has attendance (days or hours) but no pay amounts. Payslips need the pay: upload the payroll sheet, or add Basic Salary and allowance columns.',
+        'no-salary': 'This file is an employee list (names, IDs, contacts) without salary amounts. Upload the payroll, or add Basic Salary and allowance columns to this list.',
+        'not-payroll': 'This does not look like a payroll: no sheet has employee names with salary amounts. Found ' + (seenSheets || 'no data') + '. Choose the payroll file, or map the columns below if this really is it.'
+      }[kind];
+      issues = issues.filter(function (i) { return ['missing-name', 'missing-earnings', 'no-header', 'no-rows', 'missing-basic', 'missing-id'].indexOf(i.code) < 0; });
+      issues.unshift({ level: 'error', where: 'Payslips', code: kind, message: msg });
+    }
+
     // the same message can come from several combined sheets
     var seenMsg = {};
     issues = issues.filter(function (i) {
@@ -1395,8 +1913,9 @@
       stats: stats,
       columns: columns,
       sheets: sheets.map(function (s) {
-        return { name: s.name, isData: s.isData, headerRow: s.headerRow, rows: s.rows, employees: s.employees || 0, month: s.month, used: choice.used.indexOf(s) >= 0, firstRow: s.rowOffset + 1, lastRow: s.rowOffset + s.aoa.length };
+        return { name: s.name, isData: s.isData, role: s.role, roleLabel: ROLE_LABELS[s.role], vertical: !!s.vertical, headerRow: s.headerRow, rows: s.rows, employees: s.employees || 0, month: s.month, used: choice.used.indexOf(s) >= 0, firstRow: s.rowOffset + 1, lastRow: s.rowOffset + s.aoa.length };
       }),
+      supplements: supplements,
       sheetMode: choice.mode,
       sheetName: ctx.combined ? 'All sheets' : (first ? first.name : null),
       headerRow: first ? first.headerRow : null,
@@ -1524,6 +2043,8 @@
     templateColumns: templateColumns,
     buildTemplateWorkbook: buildTemplateWorkbook,
     parseWorkbook: parseWorkbook,
+    readCsv: readCsv,
+    ROLE_LABELS: ROLE_LABELS,
     guessHeader: guessHeader,
     mappingChoices: mappingChoices,
     targetToChoice: targetToChoice,
