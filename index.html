@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Payslip Generator</title>
+  <meta name="description" content="Offline payslip generator: download the Excel template, fill it, upload it, check it, pick a design and export every payslip as PDF.">
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231f4e79'/%3E%3Cpath d='M9 8h14v16H9z' fill='%23fff'/%3E%3Cpath d='M12 13h8M12 17h8M12 21h5' stroke='%231f4e79' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
+</head>
+<body>
+  <header class="topbar">
+    <div class="wrap topbar-inner">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div>
+          <h1>Payslip Generator</h1>
+          <p>Excel in, PDF payslips out. Works 100% offline in this browser, nothing is uploaded anywhere.</p>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <button type="button" class="btn btn-ghost" id="btnLoadSample">Try with sample data</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <noscript><div class="alert alert-error">This page needs JavaScript enabled to work.</div></noscript>
+    <div id="libError" class="alert alert-error hidden">
+      The bundled libraries could not be loaded. Make sure the <code>js/vendor</code> folder sits next to this page.
+    </div>
+
+    <!-- STEP 1 -------------------------------------------------------------->
+    <section class="card step" id="step1">
+      <div class="step-head">
+        <span class="step-num">1</span>
+        <div>
+          <h2>Download the Excel template</h2>
+          <p>Fill the <strong>Settings</strong> sheet once (company name, CR number, pay period…) and one row per employee in the <strong>Payslips</strong> sheet. Keep the header row as it is.</p>
+        </div>
+      </div>
+      <div class="step-body">
+        <div class="actions">
+          <button type="button" class="btn btn-primary" id="btnTemplate">Download template (.xlsx)</button>
+          <button type="button" class="btn" id="btnSampleXlsx">Download filled sample (.xlsx)</button>
+        </div>
+        <details class="hint">
+          <summary>Tips for filling the template</summary>
+          <ul>
+            <li>Amounts must be numbers. Empty cell = 0.</li>
+            <li>Extra pay items: add a column named <code>Earning: Site Allowance</code>. Extra deductions: <code>Deduction: Housing Loan</code>. Any name works.</li>
+            <li>Net salary is calculated for you (earnings − deductions). The optional <em>Net Salary</em> column is only cross-checked.</li>
+            <li>Delete the optional columns you do not need. Required: Employee ID, Employee Name, Basic Salary.</li>
+            <li>Use English / Latin letters. Arabic text is not supported by the PDF fonts in this version.</li>
+            <li>Next month: change the Pay Period and the amounts, upload again. Logo and design are remembered on this computer.</li>
+          </ul>
+        </details>
+      </div>
+    </section>
+
+    <!-- STEP 2 -------------------------------------------------------------->
+    <section class="card step" id="step2">
+      <div class="step-head">
+        <span class="step-num">2</span>
+        <div>
+          <h2>Upload the filled file and check it</h2>
+          <p>The file is read on this computer only. Rows with errors are listed below so you can fix them in Excel and upload again.</p>
+        </div>
+      </div>
+      <div class="step-body">
+        <label class="dropzone" id="dropzone" for="fileInput">
+          <input type="file" id="fileInput" accept=".xlsx,.xlsm,.xls,.csv" hidden>
+          <div class="dropzone-inner">
+            <div class="dropzone-icon" aria-hidden="true">⬆</div>
+            <div><strong>Drop the Excel file here</strong> or click to choose</div>
+            <div class="muted">.xlsx, .xlsm, .xls or .csv</div>
+          </div>
+        </label>
+        <div id="fileName" class="muted small"></div>
+
+        <div id="results" class="hidden">
+          <div class="summary-grid" id="summaryGrid"></div>
+
+          <div id="fileIssues"></div>
+
+          <div class="settings-box">
+            <h3>Company settings found in the file</h3>
+            <dl id="settingsList" class="settings-list"></dl>
+          </div>
+
+          <div class="table-head">
+            <h3>Employees <span id="rowCount" class="pill"></span></h3>
+            <div class="table-tools">
+              <input type="search" id="searchBox" placeholder="Search name or ID…" aria-label="Search employees">
+              <label class="check"><input type="checkbox" id="onlyProblems"> Show only rows with problems</label>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table class="data" id="employeeTable">
+              <thead>
+                <tr>
+                  <th>Row</th><th>Status</th><th>Employee ID</th><th>Name</th><th>Job Title</th>
+                  <th class="num">Earnings</th><th class="num">Deductions</th><th class="num">Net</th><th>Checks</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p class="muted small" id="tableNote"></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- STEP 3 -------------------------------------------------------------->
+    <section class="card step" id="step3">
+      <div class="step-head">
+        <span class="step-num">3</span>
+        <div>
+          <h2>Logo and design</h2>
+          <p>Choose how the payslip looks. These choices are remembered on this computer for next month.</p>
+        </div>
+      </div>
+      <div class="step-body design-grid">
+        <div>
+          <h3>Templates</h3>
+          <div class="template-cards" id="templateCards"></div>
+
+          <h3>Options</h3>
+          <div class="options">
+            <label>Accent colour <input type="color" id="accent" value="#1f4e79"></label>
+            <label>Paper
+              <select id="paper">
+                <option value="a4">A4</option>
+                <option value="letter">Letter</option>
+              </select>
+            </label>
+            <label class="check"><input type="checkbox" id="optWords" checked> Amount in words</label>
+            <label class="check"><input type="checkbox" id="optSign" checked> Signature lines</label>
+            <label class="check"><input type="checkbox" id="optBank" checked> Show bank / IBAN</label>
+            <label class="check"><input type="checkbox" id="optAttendance" checked> Show attendance</label>
+          </div>
+        </div>
+        <div>
+          <h3>Images</h3>
+          <div class="image-pickers">
+            <div class="image-picker">
+              <div class="image-preview" id="logoPreview"><span class="muted">No logo</span></div>
+              <div class="image-actions">
+                <label class="btn btn-small">Choose logo<input type="file" id="logoInput" accept="image/*" hidden></label>
+                <button type="button" class="btn btn-small btn-ghost" id="logoClear">Remove</button>
+              </div>
+              <p class="muted small">PNG or JPG. Shown top-left of every payslip.</p>
+            </div>
+            <div class="image-picker">
+              <div class="image-preview" id="stampPreview"><span class="muted">No stamp / signature</span></div>
+              <div class="image-actions">
+                <label class="btn btn-small">Choose stamp<input type="file" id="stampInput" accept="image/*" hidden></label>
+                <button type="button" class="btn btn-small btn-ghost" id="stampClear">Remove</button>
+              </div>
+              <p class="muted small">Optional company stamp or signature image, printed near the signature line.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- STEP 4 -------------------------------------------------------------->
+    <section class="card step" id="step4">
+      <div class="step-head">
+        <span class="step-num">4</span>
+        <div>
+          <h2>Preview and export</h2>
+          <p>Export every payslip at once: one combined PDF, or a ZIP with one PDF per employee.</p>
+        </div>
+      </div>
+      <div class="step-body">
+        <div class="preview-bar">
+          <label>Preview employee
+            <select id="previewSelect" disabled><option>Upload a file first</option></select>
+          </label>
+          <button type="button" class="btn btn-small" id="btnOpenPreview" disabled>Open preview in new tab</button>
+        </div>
+        <div class="preview-frame-wrap">
+          <iframe id="previewFrame" title="Payslip preview"></iframe>
+          <div class="preview-empty" id="previewEmpty">Upload a file to see the preview.</div>
+        </div>
+
+        <div class="export-bar">
+          <label class="check"><input type="checkbox" id="skipErrors" checked> Skip rows with errors (recommended)</label>
+          <div class="actions">
+            <button type="button" class="btn btn-primary" id="btnExportPdf" disabled>Download all as one PDF</button>
+            <button type="button" class="btn btn-primary" id="btnExportZip" disabled>Download ZIP (one PDF per employee)</button>
+            <button type="button" class="btn btn-ghost hidden" id="btnCancel">Cancel</button>
+          </div>
+        </div>
+        <div class="progress hidden" id="progress">
+          <div class="progress-bar"><div id="progressFill"></div></div>
+          <div class="muted small" id="progressText"></div>
+        </div>
+        <div id="exportState"></div>
+        <div id="exportMessage"></div>
+      </div>
+    </section>
+
+    <footer class="page-footer muted small">
+      Runs entirely in your browser. You can save this page folder on a USB stick or shared drive and open <code>index.html</code> without internet.
+      Open source libraries: SheetJS, jsPDF, JSZip.
+    </footer>
+  </main>
+
+  <script src="js/vendor/xlsx.full.min.js"></script>
+  <script src="js/vendor/jspdf.umd.min.js"></script>
+  <script src="js/vendor/jszip.min.js"></script>
+  <script src="js/schema.js"></script>
+  <script src="js/pdf.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
