@@ -229,11 +229,12 @@
     return (neg ? '-' : '') + parts.join('.');
   }
 
-  // Characters outside Latin-1 / Latin Extended cannot be rendered by the standard PDF fonts.
-  var NON_LATIN_RE = /[^\u0000-ɏ -⁯₠-⃏]/;
+  // The PDF fonts cover Latin (built-in Helvetica/Times) and Arabic (bundled Amiri).
+  // Anything else (Cyrillic, CJK, Devanagari...) prints as "?".
+  var UNSUPPORTED_RE = /[^\u0000-ɏ؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿ -⁯₠-⃏]/;
 
   function hasNonLatin(s) {
-    return NON_LATIN_RE.test(String(s || ''));
+    return UNSUPPORTED_RE.test(String(s || ''));
   }
 
   // ---------------------------------------------------------------------------
@@ -377,7 +378,7 @@
       ['7. Extra deductions: add a column named "Deduction: <name>" (e.g. "Deduction: Housing Loan").'],
       ['8. Net Salary is calculated automatically (earnings - deductions). If you fill the Net Salary column it is only used as a cross-check.'],
       ['9. Save the file, open the Payslip Generator page, upload this file, review the checks, pick a design and export the PDFs.'],
-      ['10. Use English/Latin letters for names and text. Arabic script is not supported by the PDF fonts in this version.'],
+      ['10. Names and text can be in English or Arabic (or both).'],
       [''],
       ['COLUMNS'],
       ['Column', 'Required', 'Type', 'Group']
@@ -463,7 +464,7 @@
     }
     ['companyName', 'address', 'preparedBy', 'footerNote', 'payPeriod'].forEach(function (k) {
       if (hasNonLatin(settings[k])) {
-        issues.push({ level: 'warning', where: 'Settings', message: '"' + settingLabel(k) + '" contains characters (e.g. Arabic) that the PDF fonts cannot print. Use English text.' });
+        issues.push({ level: 'warning', where: 'Settings', message: '"' + settingLabel(k) + '" contains characters the PDF fonts cannot print (only English and Arabic are supported).' });
       }
     });
     return settings;
@@ -762,7 +763,7 @@
       if (hasNonLatin(l.label) && nonLatin.indexOf(l.label) < 0) nonLatin.push(l.label);
     });
     if (nonLatin.length) {
-      slip.issues.push({ level: 'warning', message: 'Some text (e.g. ' + fieldLabel(nonLatin[0]) + ') contains characters the PDF fonts cannot print, such as Arabic. It will show as "?"; use English.' });
+      slip.issues.push({ level: 'warning', message: 'Some text (e.g. ' + fieldLabel(nonLatin[0]) + ') contains characters the PDF fonts cannot print; only English and Arabic are supported. They will show as "?".' });
     }
 
     slip.hasErrors = slip.issues.some(function (i) { return i.level === 'error'; });

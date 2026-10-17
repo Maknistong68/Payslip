@@ -42,9 +42,10 @@ The template gives the best result, but any salary sheet is accepted:
   are only cross-checked and a warning is shown on mismatch.
 - Logo: insert the picture on the `Settings` sheet (Insert → Pictures); a second picture becomes the stamp/signature.
   Pictures are read straight out of the .xlsx.
-- Use English / Latin letters. Arabic script is not supported by the built-in PDF fonts in this version.
+- Names and text can be in English or Arabic. Arabic is printed with the bundled Amiri font (SIL Open Font License);
+  other scripts (Cyrillic, Chinese…) are flagged in the checks and print as `?`.
 
-Ready-made files are in `samples/`: the empty template, a filled sample with 25 employees and one sample PDF per design.
+Ready-made files are in `samples/`: the empty template, a filled sample with 25 employees, one sample PDF per design and an Arabic sample per design.
 
 ## Project layout
 
@@ -54,6 +55,7 @@ css/styles.css
 js/schema.js      Excel template definition, tolerant parser, column guessing and validation (pure functions)
 js/xlsx-images.js reads pictures out of an .xlsx and embeds pictures into one (JSZip)
 js/pdf.js         the three PDF designs and the display options (jsPDF)
+js/fonts/         Amiri Regular/Bold as base64 for Arabic text, plus its OFL licence
 js/app.js         the four-step UI, settings file, preview and export
 js/vendor/        SheetJS, jsPDF, JSZip (bundled so the page works offline)
 samples/          template, sample workbook, sample PDFs
@@ -72,6 +74,10 @@ No build step; edit the files and reload the page.
 
 ## Known limitations
 
-- Latin script only in PDFs (Arabic names/labels show as `?`); a bilingual template needs an embedded Arabic font.
+- Arabic is supported for values (names, titles, company name, custom pay lines, remarks, footer); the fixed labels
+  ("Basic Salary", "Net Pay"…) and the amount in words stay in English. Text mixing Arabic and English words inside
+  one cell can come out in a slightly different order than typed.
+- Each PDF that contains Arabic embeds a subset of the font (about 25 KB per file). A ZIP of 1,000 Arabic payslips
+  therefore takes around 1–2 minutes; the combined single PDF is as fast as before.
 - Pictures in formats the browser cannot decode (EMF/WMF) are ignored; use PNG or JPG in the Excel file.
 - One payslip per page, A4 or Letter, portrait.

@@ -9,6 +9,7 @@ var jspdf = require(path.join(__dirname, '..', 'js', 'vendor', 'jspdf.umd.min.js
 var Schema = require(path.join(__dirname, '..', 'js', 'schema.js'));
 var PDF = require(path.join(__dirname, '..', 'js', 'pdf.js'));
 var jsPDF = jspdf.jsPDF;
+require(path.join(__dirname, '..', 'js', 'fonts', 'amiri.js'));
 
 function readWb(buf) { return XLSX.read(buf, { type: 'buffer', cellDates: true }); }
 function wbToBuf(wb) { return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx', cellDates: true }); }
@@ -65,7 +66,8 @@ assert.ok(!r1.issues.some(function (i) { return /does not match/.test(i.message)
 assert.ok(b.slips[1].issues.some(function (i) { return /not a number/.test(i.message); }));
 assert.ok(b.slips[2].issues.some(function (i) { return /name is empty/.test(i.message); }));
 assert.ok(b.slips[2].issues.some(function (i) { return /exceed/.test(i.message); }));
-assert.ok(b.slips[3].issues.some(function (i) { return /Arabic/.test(i.message); }));
+assert.ok(!b.slips[3].issues.some(function (i) { return /cannot print/.test(i.message); }), 'Arabic names are supported now');
+assert.ok(Schema.hasNonLatin('Привет'), 'Cyrillic still flagged');
 assert.ok(!b.slips[3].issues.some(function (i) { return /IBAN/.test(i.message); }), 'valid SA IBAN');
 assert.ok(b.slips[4].issues.some(function (i) { return /negative/.test(i.message); }));
 assert.strictEqual(b.stats.withErrors, 4);
@@ -147,6 +149,30 @@ assert.strictEqual(Schema.amountToWords(1, 'SAR'), 'One Saudi Riyal Only');
 assert.strictEqual(Schema.amountToWords(0, 'AED'), 'Zero Dirhams Only');
 assert.strictEqual(Schema.amountToWords(1000000, 'USD'), 'One Million US Dollars Only');
 assert.strictEqual(Schema.formatMoney(1234567.891), '1,234,567.89');
+
+// 4b. Arabic rendering: a slip with Arabic name/title/custom line and Arabic company name
+assert.ok(PDF.arabicFontAvailable(), 'Amiri font bundle loaded');
+var arSlip = JSON.parse(JSON.stringify(sample.slips[0]));
+arSlip.name = 'محمد عبدالله الحربي';
+arSlip.fields.jobTitle = 'مهندس موقع';
+arSlip.fields.department = 'المشاريع';
+arSlip.fields.remarks = 'يشمل بدل العمل الإضافي للموقع';
+arSlip.earnings.push({ key: 'custom', label: 'بدل طبيعة عمل', amount: 250 });
+var arSettings = Object.assign({}, sample.settings, { companyName: 'شركة المثال للمقاولات المحدودة', address: 'تبوك، المملكة العربية السعودية', footerNote: 'هذه القسيمة صادرة آلياً ولا تحتاج إلى توقيع' });
+PDF.TEMPLATES.forEach(function (t) {
+  var d = PDF.createDoc(jsPDF, 'a4');
+  PDF.renderPayslip(d, { slip: arSlip, settings: arSettings, templateId: t.id, accent: '#1f4e79', options: { signatureLines: true } });
+  var ab = Buffer.from(d.output('arraybuffer'));
+  assert.ok(ab.length > 20000, 'embedded font makes the file bigger');
+  assert.ok(ab.toString('latin1').indexOf('Amiri') >= 0, 'Amiri embedded');
+  if (process.env.WRITE_PDFS) fs.writeFileSync(path.join(__dirname, '..', 'samples', 'Sample_Arabic_' + t.name + '.pdf'), ab);
+});
+var plain = PDF.createDoc(jsPDF, 'a4');
+PDF.renderPayslip(plain, { slip: sample.slips[0], settings: sample.settings, templateId: 'classic', accent: '#1f4e79', options: {} });
+assert.ok(Buffer.from(plain.output('arraybuffer')).toString('latin1').indexOf('Amiri') < 0, 'font not embedded when no Arabic');
+var tAr = Date.now();
+for (var k = 0; k < 20; k++) { var dk = PDF.createDoc(jsPDF, 'a4'); PDF.renderPayslip(dk, { slip: arSlip, settings: arSettings, templateId: 'modern', accent: '#1f4e79', options: {} }); dk.output('arraybuffer'); }
+console.log('20 single Arabic payslips (font embedded each time):', Date.now() - tAr, 'ms');
 
 // 5. Render every template for every sample slip, and a 1000-page document.
 var outDir = path.join(__dirname, '..', 'samples');

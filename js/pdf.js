@@ -13,12 +13,41 @@
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) {
-    module.exports = factory(require('./schema.js'));
+    module.exports = factory(require('./schema.js'), typeof global !== 'undefined' ? global : root);
   } else {
-    root.PayslipPDF = factory(root.PayslipSchema);
+    root.PayslipPDF = factory(root.PayslipSchema, root);
   }
-})(typeof self !== 'undefined' ? self : this, function (Schema) {
+})(typeof self !== 'undefined' ? self : this, function (Schema, root) {
   'use strict';
+
+  // ---- Arabic support -------------------------------------------------------
+  // The built-in PDF fonts only cover Latin. When a string contains Arabic we switch to
+  // Amiri (bundled in js/fonts/amiri.js); jsPDF's Arabic plugin does the letter shaping and
+  // right-to-left ordering. The font is registered on a document only when first needed.
+  var ARABIC_RE = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+
+  function hasArabic(s) {
+    return ARABIC_RE.test(String(s == null ? '' : s));
+  }
+
+  function arabicFontAvailable() {
+    return !!(root && root.PayslipFonts && root.PayslipFonts.Amiri);
+  }
+
+  function ensureArabicFont(doc) {
+    if (doc.__payslipArabic !== undefined) return doc.__payslipArabic;
+    if (!arabicFontAvailable()) {
+      doc.__payslipArabic = false;
+      return false;
+    }
+    var f = root.PayslipFonts.Amiri;
+    doc.addFileToVFS('Amiri-Regular.ttf', f.regular);
+    doc.addFont('Amiri-Regular.ttf', 'Amiri', 'normal');
+    doc.addFileToVFS('Amiri-Bold.ttf', f.bold);
+    doc.addFont('Amiri-Bold.ttf', 'Amiri', 'bold');
+    doc.__payslipArabic = true;
+    return true;
+  }
 
   var TEMPLATES = [
     { id: 'classic', name: 'Classic', description: 'Bordered tables, black and white. Prints well on any printer.' },
@@ -97,8 +126,8 @@
   }
 
   function sanitize(s) {
-    // Replace characters the built-in fonts cannot render with '?' to avoid garbage glyph runs.
-    return String(s == null ? '' : s).replace(/[^\u0000-ɏ -⁯₠-⃏]/g, '?');
+    // Replace characters neither font can render with '?' to avoid garbage glyph runs.
+    return String(s == null ? '' : s).replace(/[^\u0000-ɏ؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿ -⁯₠-⃏]/g, '?');
   }
 
   // ---------------------------------------------------------------------------
@@ -113,11 +142,17 @@
   Painter.prototype.text = function (str, x, y, opts) {
     opts = opts || {};
     var d = this.doc;
-    d.setFont(opts.font || this.style.font, opts.weight || 'normal');
-    d.setFontSize(opts.size || 9);
+    var s = sanitize(str);
+    var arabic = hasArabic(s) && ensureArabicFont(d);
+    if (arabic) {
+      d.setFont('Amiri', opts.weight === 'bold' ? 'bold' : 'normal');
+      d.setFontSize((opts.size || 9) * 1.12); // Amiri runs visually smaller than Helvetica
+    } else {
+      d.setFont(opts.font || this.style.font, opts.weight || 'normal');
+      d.setFontSize(opts.size || 9);
+    }
     var c = opts.color || this.style.text;
     d.setTextColor(c[0], c[1], c[2]);
-    var s = sanitize(str);
     if (opts.maxWidth) {
       // truncate with ellipsis instead of wrapping when asked
       if (opts.truncate) {
@@ -458,6 +493,8 @@
     TEMPLATES: TEMPLATES,
     PAPERS: PAPERS,
     DISPLAY_OPTIONS: DISPLAY_OPTIONS,
+    hasArabic: hasArabic,
+    arabicFontAvailable: arabicFontAvailable,
     DEFAULT_OPTIONS: DEFAULT_OPTIONS,
     mergeOptions: mergeOptions,
     renderPayslip: renderPayslip,
