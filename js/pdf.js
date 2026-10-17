@@ -26,6 +26,43 @@
     { id: 'minimal', name: 'Minimal', description: 'Clean, lots of white space, thin lines.' }
   ];
 
+  // Everything the user can switch on/off on the payslip. Grouped for the settings UI.
+  var DISPLAY_OPTIONS = [
+    { key: 'showCr', label: 'CR number', group: 'Company header', def: true },
+    { key: 'showAddress', label: 'Company address', group: 'Company header', def: true },
+    { key: 'showContact', label: 'Phone / email', group: 'Company header', def: true },
+    { key: 'showPeriodDates', label: 'Period start / end dates', group: 'Company header', def: true },
+    { key: 'showPaymentDate', label: 'Payment date', group: 'Company header', def: true },
+    { key: 'f_employeeId', label: 'Employee ID', group: 'Employee details', def: true },
+    { key: 'f_nationalId', label: 'National ID / Iqama', group: 'Employee details', def: true },
+    { key: 'f_nationality', label: 'Nationality', group: 'Employee details', def: true },
+    { key: 'f_jobTitle', label: 'Job title', group: 'Employee details', def: true },
+    { key: 'f_department', label: 'Department', group: 'Employee details', def: true },
+    { key: 'f_joiningDate', label: 'Joining date', group: 'Employee details', def: true },
+    { key: 'f_bankName', label: 'Bank name', group: 'Employee details', def: true },
+    { key: 'f_iban', label: 'IBAN', group: 'Employee details', def: true },
+    { key: 'f_workingDays', label: 'Working days', group: 'Attendance', def: true },
+    { key: 'f_absentDays', label: 'Absent days', group: 'Attendance', def: true },
+    { key: 'f_overtimeHours', label: 'Overtime hours', group: 'Attendance', def: true },
+    { key: 'amountInWords', label: 'Net amount in words', group: 'Totals & footer', def: true },
+    { key: 'showRemarks', label: 'Remarks line', group: 'Totals & footer', def: true },
+    { key: 'signatureLines', label: 'Signature lines', group: 'Totals & footer', def: true },
+    { key: 'showFooterNote', label: 'Footer note', group: 'Totals & footer', def: true },
+    { key: 'showPreparedBy', label: '"Prepared by"', group: 'Totals & footer', def: true },
+    { key: 'showGeneratedOn', label: '"Generated on" date', group: 'Totals & footer', def: false }
+  ];
+
+  var DEFAULT_OPTIONS = { title: 'PAYSLIP' };
+  DISPLAY_OPTIONS.forEach(function (o) { DEFAULT_OPTIONS[o.key] = o.def; });
+
+  function mergeOptions(options) {
+    var out = {};
+    Object.keys(DEFAULT_OPTIONS).forEach(function (k) { out[k] = DEFAULT_OPTIONS[k]; });
+    if (options) Object.keys(options).forEach(function (k) { if (options[k] !== undefined) out[k] = options[k]; });
+    if (!out.title || !String(out.title).trim()) out.title = 'PAYSLIP';
+    return out;
+  }
+
   var PAPERS = {
     a4: { format: 'a4', width: 210, height: 297 },
     letter: { format: 'letter', width: 215.9, height: 279.4 }
@@ -162,26 +199,22 @@
     return base;
   }
 
-  function infoPairs(slip, settings, options) {
+  function infoPairs(slip, settings, o) {
     var f = slip.fields;
     var pairs = [
-      ['Employee ID', slip.employeeId],
+      ['Employee ID', o.f_employeeId ? slip.employeeId : ''],
       ['Employee Name', slip.name],
-      ['National ID / Iqama', f.nationalId],
-      ['Job Title', f.jobTitle],
-      ['Department', f.department],
-      ['Nationality', f.nationality],
-      ['Joining Date', f.joiningDate]
+      ['National ID / Iqama', o.f_nationalId ? f.nationalId : ''],
+      ['Job Title', o.f_jobTitle ? f.jobTitle : ''],
+      ['Department', o.f_department ? f.department : ''],
+      ['Nationality', o.f_nationality ? f.nationality : ''],
+      ['Joining Date', o.f_joiningDate ? f.joiningDate : ''],
+      ['Bank', o.f_bankName ? f.bankName : ''],
+      ['IBAN', o.f_iban ? f.iban : ''],
+      ['Working Days', o.f_workingDays ? f.workingDays : ''],
+      ['Absent Days', o.f_absentDays ? f.absentDays : ''],
+      ['Overtime Hours', o.f_overtimeHours ? f.overtimeHours : '']
     ];
-    if (options.showBank !== false) {
-      pairs.push(['Bank', f.bankName]);
-      pairs.push(['IBAN', f.iban]);
-    }
-    if (options.showAttendance !== false) {
-      pairs.push(['Working Days', f.workingDays]);
-      pairs.push(['Absent Days', f.absentDays]);
-      pairs.push(['Overtime Hours', f.overtimeHours]);
-    }
     return pairs.filter(function (p) {
       return p[1] !== '' && p[1] != null;
     });
@@ -193,7 +226,7 @@
     var P = new Painter(doc, style);
     var settings = ctx.settings || {};
     var slip = ctx.slip;
-    var options = ctx.options || {};
+    var options = mergeOptions(ctx.options);
     var pageW = doc.internal.pageSize.getWidth();
     var pageH = doc.internal.pageSize.getHeight();
     var M = 14; // margin mm
@@ -203,8 +236,10 @@
 
     // ----- Header ---------------------------------------------------------
     var headerH = 30;
-    var rightLines = ([settings.periodStart, settings.periodEnd].some(Boolean) ? 1 : 0) + (settings.paymentDate ? 1 : 0);
-    var leftLines = (settings.crNumber ? 1 : 0) + (settings.address ? 1 : 0) + ((settings.phone || settings.email) ? 1 : 0);
+    var showRange = options.showPeriodDates && [settings.periodStart, settings.periodEnd].some(Boolean);
+    var showPay = options.showPaymentDate && settings.paymentDate;
+    var rightLines = (showRange ? 1 : 0) + (showPay ? 1 : 0);
+    var leftLines = (options.showCr && settings.crNumber ? 1 : 0) + (options.showAddress && settings.address ? 1 : 0) + (options.showContact && (settings.phone || settings.email) ? 1 : 0);
     var bandH = Math.max(headerH + 8, y + 19.5 + 4.2 * rightLines + 4, y + 11.5 + 4.2 * leftLines + 4);
     if (templateId === 'modern') {
       P.rect(0, 0, pageW, bandH, style.accent);
@@ -228,24 +263,24 @@
     P.text(settings.companyName || 'Company Name', textX, y + 6, { size: 14, weight: 'bold', font: style.headingFont, color: headerTextColor, maxWidth: leftColW, maxLines: 2 });
     var ly = y + 11.5;
     var infoLines = [];
-    if (settings.crNumber) infoLines.push('CR No. ' + settings.crNumber);
-    if (settings.address) infoLines.push(settings.address);
+    if (options.showCr && settings.crNumber) infoLines.push('CR No. ' + settings.crNumber);
+    if (options.showAddress && settings.address) infoLines.push(settings.address);
     var contact = [settings.phone, settings.email].filter(Boolean).join('  |  ');
-    if (contact) infoLines.push(contact);
+    if (options.showContact && contact) infoLines.push(contact);
     infoLines.forEach(function (l) {
       var n = P.text(l, textX, ly, { size: 8.5, color: headerMuted, maxWidth: leftColW, maxLines: 2 });
       ly += 4.2 * n;
     });
 
-    P.text('PAYSLIP', rightColX, y + 8, { size: 20, weight: 'bold', font: style.headingFont, align: 'right', color: templateId === 'modern' ? [255, 255, 255] : style.accent });
+    P.text(String(options.title).toUpperCase(), rightColX, y + 8, { size: 20, weight: 'bold', font: style.headingFont, align: 'right', color: templateId === 'modern' ? [255, 255, 255] : style.accent, maxWidth: contentW * 0.38, truncate: true });
     P.text(settings.payPeriod || '', rightColX, y + 14.5, { size: 11, align: 'right', color: headerTextColor });
     var subY = y + 19.5;
     var periodRange = [settings.periodStart, settings.periodEnd].filter(Boolean).join(' - ');
-    if (periodRange) {
+    if (showRange) {
       P.text(periodRange, rightColX, subY, { size: 8.5, align: 'right', color: headerMuted });
       subY += 4.2;
     }
-    if (settings.paymentDate) {
+    if (showPay) {
       P.text('Payment date: ' + settings.paymentDate, rightColX, subY, { size: 8.5, align: 'right', color: headerMuted });
       subY += 4.2;
     }
@@ -349,7 +384,7 @@
     }
     y += netH + 6;
 
-    if (slip.fields.remarks) {
+    if (options.showRemarks && slip.fields.remarks) {
       var n = P.text('Remarks: ' + slip.fields.remarks, M, y + 3, { size: 8.5, color: style.muted, maxWidth: contentW, maxLines: 3 });
       y += n * 4.5 + 4;
     }
@@ -381,8 +416,9 @@
     var bottomY = pageH - M;
     P.line(M, bottomY - 9, pageW - M, bottomY - 9);
     var footLeft = [];
-    if (settings.footerNote) footLeft.push(settings.footerNote);
-    if (settings.preparedBy) footLeft.push('Prepared by: ' + settings.preparedBy);
+    if (options.showFooterNote && settings.footerNote) footLeft.push(settings.footerNote);
+    if (options.showPreparedBy && settings.preparedBy) footLeft.push('Prepared by: ' + settings.preparedBy);
+    if (options.showGeneratedOn) footLeft.push('Generated on ' + Schema.formatDate(new Date()));
     if (footLeft.length) {
       P.text(footLeft.join('   ·   '), M, bottomY - 4.5, { size: 7.5, color: style.muted, maxWidth: contentW - 60, maxLines: 2 });
     }
@@ -421,6 +457,9 @@
   return {
     TEMPLATES: TEMPLATES,
     PAPERS: PAPERS,
+    DISPLAY_OPTIONS: DISPLAY_OPTIONS,
+    DEFAULT_OPTIONS: DEFAULT_OPTIONS,
+    mergeOptions: mergeOptions,
     renderPayslip: renderPayslip,
     createDoc: createDoc,
     setMeta: setMeta,

@@ -4,23 +4,24 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Payslip Generator</title>
-  <meta name="description" content="Offline payslip generator: download the Excel template, fill it, upload it, check it, pick a design and export every payslip as PDF.">
+  <meta name="description" content="Offline payslip generator: upload your salary Excel sheet, check it, pick a design and export every payslip as PDF.">
   <link rel="stylesheet" href="css/styles.css">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231f4e79'/%3E%3Cpath d='M9 8h14v16H9z' fill='%23fff'/%3E%3Cpath d='M12 13h8M12 17h8M12 21h5' stroke='%231f4e79' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
 </head>
 <body>
   <header class="topbar">
     <div class="wrap topbar-inner">
-      <div class="brand">
+      <a class="brand" href="#" id="brandLink">
         <span class="brand-mark" aria-hidden="true"></span>
-        <div>
-          <h1>Payslip Generator</h1>
-          <p>Excel in, PDF payslips out. Works 100% offline in this browser, nothing is uploaded anywhere.</p>
-        </div>
-      </div>
-      <div class="topbar-actions">
-        <button type="button" class="btn btn-ghost" id="btnLoadSample">Try with sample data</button>
-      </div>
+        <span class="brand-name">Payslip Generator</span>
+      </a>
+      <ol class="stepper" id="stepper">
+        <li data-step="1" class="active"><span class="dot">1</span><span class="lbl">Upload</span></li>
+        <li data-step="2" class="disabled"><span class="dot">2</span><span class="lbl">Review</span></li>
+        <li data-step="3" class="disabled"><span class="dot">3</span><span class="lbl">Design</span></li>
+        <li data-step="4" class="disabled"><span class="dot">4</span><span class="lbl">Export</span></li>
+      </ol>
+      <span class="offline-badge" title="Nothing is uploaded to any server">Offline</span>
     </div>
   </header>
 
@@ -30,76 +31,123 @@
       The bundled libraries could not be loaded. Make sure the <code>js/vendor</code> folder sits next to this page.
     </div>
 
-    <!-- STEP 1 -------------------------------------------------------------->
-    <section class="card step" id="step1">
-      <div class="step-head">
-        <span class="step-num">1</span>
-        <div>
-          <h2>Download the Excel template</h2>
-          <p>Fill the <strong>Settings</strong> sheet once (company name, CR number, pay period…) and one row per employee in the <strong>Payslips</strong> sheet. Keep the header row as it is.</p>
+    <!-- ================= STEP 1: UPLOAD ================= -->
+    <section class="panel" id="panel1">
+      <div class="hero">
+        <h1>Turn your salary sheet into payslips</h1>
+        <p>Upload the Excel file, check it, pick a design, download all payslips as PDF. Everything stays on this computer.</p>
+      </div>
+
+      <label class="dropzone" id="dropzone" for="fileInput">
+        <input type="file" id="fileInput" accept=".xlsx,.xlsm,.xls,.csv" hidden>
+        <div class="dropzone-inner">
+          <div class="dropzone-icon" aria-hidden="true">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M20 16v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-3"/></svg>
+          </div>
+          <div class="dropzone-title">Drop your Excel file here</div>
+          <div class="muted">or click to choose · .xlsx, .xls or .csv</div>
+          <div class="muted small" style="margin-top:10px">Any salary sheet works. The template below gives the best result.</div>
+        </div>
+      </label>
+      <div id="loadError"></div>
+
+      <div class="start-cards">
+        <div class="start-card">
+          <h3>First time?</h3>
+          <p class="muted">Download the Excel template, fill the company details and one row per employee, then upload it here.</p>
+          <div class="actions">
+            <button type="button" class="btn btn-primary" id="btnTemplate">Download template</button>
+            <button type="button" class="btn" id="btnSampleXlsx">Filled example</button>
+          </div>
+          <button type="button" class="link" id="btnLoadSample">Or try the page with sample data →</button>
+        </div>
+        <div class="start-card">
+          <h3>Used it before?</h3>
+          <p class="muted">Load the settings file you saved last time: logo, design, company details and column mapping come back in one click.</p>
+          <div class="actions">
+            <label class="btn">Load settings file<input type="file" id="settingsInput" accept=".json,application/json" hidden></label>
+          </div>
+          <div class="muted small" id="savedHint"></div>
         </div>
       </div>
-      <div class="step-body">
-        <div class="actions">
-          <button type="button" class="btn btn-primary" id="btnTemplate">Download template (.xlsx)</button>
-          <button type="button" class="btn" id="btnSampleXlsx">Download filled sample (.xlsx)</button>
-        </div>
-        <details class="hint">
-          <summary>Tips for filling the template</summary>
-          <ul>
-            <li>Amounts must be numbers. Empty cell = 0.</li>
-            <li>Extra pay items: add a column named <code>Earning: Site Allowance</code>. Extra deductions: <code>Deduction: Housing Loan</code>. Any name works.</li>
-            <li>Net salary is calculated for you (earnings − deductions). The optional <em>Net Salary</em> column is only cross-checked.</li>
-            <li>Delete the optional columns you do not need. Required: Employee ID, Employee Name, Basic Salary.</li>
-            <li>Use English / Latin letters. Arabic text is not supported by the PDF fonts in this version.</li>
-            <li>Next month: change the Pay Period and the amounts, upload again. Logo and design are remembered on this computer.</li>
-          </ul>
-        </details>
-      </div>
+
+      <details class="hint">
+        <summary>How should the Excel file look?</summary>
+        <ul>
+          <li>One row per employee. Required: a name column and at least one salary column. Everything else is optional.</li>
+          <li>Column names are matched flexibly ("Basic", "HRA", "Iqama No.", "Net Payable"…). Anything unclear can be mapped on the next screen.</li>
+          <li>Extra pay items: name a column <code>Earning: Site Allowance</code>. Extra deductions: <code>Deduction: Housing Loan</code>.</li>
+          <li>Company details go in a <strong>Settings</strong> sheet (the template has one). If your file has none, you can type them on the next screen.</li>
+          <li>Your logo: insert the picture on the Settings sheet (Insert → Pictures). A second picture is used as stamp/signature.</li>
+          <li>Use English letters. Arabic text is not supported by the PDF fonts in this version.</li>
+        </ul>
+      </details>
     </section>
 
-    <!-- STEP 2 -------------------------------------------------------------->
-    <section class="card step" id="step2">
-      <div class="step-head">
-        <span class="step-num">2</span>
+    <!-- ================= STEP 2: REVIEW ================= -->
+    <section class="panel hidden" id="panel2">
+      <div class="panel-head">
         <div>
-          <h2>Upload the filled file and check it</h2>
-          <p>The file is read on this computer only. Rows with errors are listed below so you can fix them in Excel and upload again.</p>
+          <h2>Review the file</h2>
+          <p class="muted" id="fileName"></p>
         </div>
+        <button type="button" class="btn btn-small" id="btnChangeFile">Choose another file</button>
       </div>
-      <div class="step-body">
-        <label class="dropzone" id="dropzone" for="fileInput">
-          <input type="file" id="fileInput" accept=".xlsx,.xlsm,.xls,.csv" hidden>
-          <div class="dropzone-inner">
-            <div class="dropzone-icon" aria-hidden="true">⬆</div>
-            <div><strong>Drop the Excel file here</strong> or click to choose</div>
-            <div class="muted">.xlsx, .xlsm, .xls or .csv</div>
+
+      <div id="statusBanner"></div>
+      <div class="summary-grid" id="summaryGrid"></div>
+
+      <details class="section" id="secCompany">
+        <summary>
+          <span class="sec-title">Company details</span>
+          <span class="sec-meta" id="companyMeta"></span>
+        </summary>
+        <div class="section-body">
+          <p class="muted small" id="companySource"></p>
+          <div class="form-grid" id="companyForm"></div>
+        </div>
+      </details>
+
+      <details class="section" id="secColumns">
+        <summary>
+          <span class="sec-title">Columns</span>
+          <span class="sec-meta" id="columnsMeta"></span>
+        </summary>
+        <div class="section-body">
+          <p class="muted small">This is how each column of your sheet was understood. Change anything that is wrong; the choice is remembered for next time.</p>
+          <div id="missingColumns"></div>
+          <div class="table-scroll">
+            <table class="data" id="columnsTable">
+              <thead><tr><th>Your column</th><th>Understood as</th><th>Sample values</th><th>How</th></tr></thead>
+              <tbody></tbody>
+            </table>
           </div>
-        </label>
-        <div id="fileName" class="muted small"></div>
+        </div>
+      </details>
 
-        <div id="results" class="hidden">
-          <div class="summary-grid" id="summaryGrid"></div>
+      <details class="section" id="secMessages">
+        <summary>
+          <span class="sec-title">Messages</span>
+          <span class="sec-meta" id="messagesMeta"></span>
+        </summary>
+        <div class="section-body" id="fileIssues"></div>
+      </details>
 
-          <div id="fileIssues"></div>
-
-          <div class="settings-box">
-            <h3>Company settings found in the file</h3>
-            <dl id="settingsList" class="settings-list"></dl>
-          </div>
-
-          <div class="table-head">
-            <h3>Employees <span id="rowCount" class="pill"></span></h3>
-            <div class="table-tools">
-              <input type="search" id="searchBox" placeholder="Search name or ID…" aria-label="Search employees">
-              <label class="check"><input type="checkbox" id="onlyProblems"> Show only rows with problems</label>
-            </div>
+      <details class="section" id="secEmployees" open>
+        <summary>
+          <span class="sec-title">Employees</span>
+          <span class="sec-meta" id="rowCount"></span>
+        </summary>
+        <div class="section-body">
+          <div class="table-tools">
+            <input type="search" id="searchBox" placeholder="Search name or ID…" aria-label="Search employees">
+            <label class="check"><input type="checkbox" id="onlyProblems"> Only rows with problems</label>
           </div>
           <div class="table-scroll">
             <table class="data" id="employeeTable">
               <thead>
                 <tr>
-                  <th>Row</th><th>Status</th><th>Employee ID</th><th>Name</th><th>Job Title</th>
+                  <th>Row</th><th>Status</th><th>ID</th><th>Name</th>
                   <th class="num">Earnings</th><th class="num">Deductions</th><th class="num">Net</th><th>Checks</th>
                 </tr>
               </thead>
@@ -108,103 +156,133 @@
           </div>
           <p class="muted small" id="tableNote"></p>
         </div>
+      </details>
+
+      <div class="panel-nav">
+        <button type="button" class="btn" data-go="1">← Back</button>
+        <button type="button" class="btn btn-primary" data-go="3">Continue to design →</button>
       </div>
     </section>
 
-    <!-- STEP 3 -------------------------------------------------------------->
-    <section class="card step" id="step3">
-      <div class="step-head">
-        <span class="step-num">3</span>
+    <!-- ================= STEP 3: DESIGN ================= -->
+    <section class="panel hidden" id="panel3">
+      <div class="panel-head">
         <div>
-          <h2>Logo and design</h2>
-          <p>Choose how the payslip looks. These choices are remembered on this computer for next month.</p>
+          <h2>Design</h2>
+          <p class="muted">Pick a look and decide what appears on the payslip. Saved automatically on this computer.</p>
         </div>
       </div>
-      <div class="step-body design-grid">
-        <div>
-          <h3>Templates</h3>
-          <div class="template-cards" id="templateCards"></div>
 
-          <h3>Options</h3>
-          <div class="options">
-            <label>Accent colour <input type="color" id="accent" value="#1f4e79"></label>
-            <label>Paper
-              <select id="paper">
-                <option value="a4">A4</option>
-                <option value="letter">Letter</option>
-              </select>
-            </label>
-            <label class="check"><input type="checkbox" id="optWords" checked> Amount in words</label>
-            <label class="check"><input type="checkbox" id="optSign" checked> Signature lines</label>
-            <label class="check"><input type="checkbox" id="optBank" checked> Show bank / IBAN</label>
-            <label class="check"><input type="checkbox" id="optAttendance" checked> Show attendance</label>
-          </div>
-        </div>
-        <div>
-          <h3>Images</h3>
-          <div class="image-pickers">
-            <div class="image-picker">
-              <div class="image-preview" id="logoPreview"><span class="muted">No logo</span></div>
-              <div class="image-actions">
-                <label class="btn btn-small">Choose logo<input type="file" id="logoInput" accept="image/*" hidden></label>
-                <button type="button" class="btn btn-small btn-ghost" id="logoClear">Remove</button>
-              </div>
-              <p class="muted small">PNG or JPG. Shown top-left of every payslip.</p>
-            </div>
-            <div class="image-picker">
-              <div class="image-preview" id="stampPreview"><span class="muted">No stamp / signature</span></div>
-              <div class="image-actions">
-                <label class="btn btn-small">Choose stamp<input type="file" id="stampInput" accept="image/*" hidden></label>
-                <button type="button" class="btn btn-small btn-ghost" id="stampClear">Remove</button>
-              </div>
-              <p class="muted small">Optional company stamp or signature image, printed near the signature line.</p>
+      <div class="design-layout">
+        <div class="design-controls">
+          <div class="section open-section">
+            <h3>Template</h3>
+            <div class="template-cards" id="templateCards"></div>
+            <div class="options-row">
+              <label>Accent <input type="color" id="accent" value="#1f4e79"></label>
+              <label>Paper
+                <select id="paper"><option value="a4">A4</option><option value="letter">Letter</option></select>
+              </label>
+              <label>Title <input type="text" id="docTitle" value="PAYSLIP" maxlength="30"></label>
             </div>
           </div>
+
+          <div class="section open-section">
+            <h3>Logo &amp; stamp</h3>
+            <div class="image-pickers">
+              <div class="image-picker">
+                <div class="image-preview" id="logoPreview"></div>
+                <div class="image-actions">
+                  <label class="btn btn-small">Choose logo<input type="file" id="logoInput" accept="image/*" hidden></label>
+                  <button type="button" class="btn btn-small btn-ghost" id="logoClear">Remove</button>
+                </div>
+                <p class="muted small" id="logoSource"></p>
+              </div>
+              <div class="image-picker">
+                <div class="image-preview" id="stampPreview"></div>
+                <div class="image-actions">
+                  <label class="btn btn-small">Choose stamp<input type="file" id="stampInput" accept="image/*" hidden></label>
+                  <button type="button" class="btn btn-small btn-ghost" id="stampClear">Remove</button>
+                </div>
+                <p class="muted small" id="stampSource"></p>
+              </div>
+            </div>
+          </div>
+
+          <details class="section" id="secDisplay">
+            <summary><span class="sec-title">What to show on the payslip</span><span class="sec-meta" id="displayMeta"></span></summary>
+            <div class="section-body display-groups" id="displayOptions"></div>
+          </details>
+
+          <div class="section open-section reuse">
+            <h3>Reuse next month</h3>
+            <p class="muted small">Keep every payslip uniform: save your settings file (logo, design, company details, column mapping) and load it on any computer. Or download a template already filled with your details and logo.</p>
+            <div class="actions">
+              <button type="button" class="btn" id="btnSaveSettings">Save settings file</button>
+              <label class="btn">Load settings file<input type="file" id="settingsInput2" accept=".json,application/json" hidden></label>
+              <button type="button" class="btn" id="btnMyTemplate">Download my template (.xlsx)</button>
+            </div>
+          </div>
         </div>
+
+        <div class="design-preview">
+          <div class="preview-bar">
+            <select id="previewSelect" aria-label="Preview employee"></select>
+            <button type="button" class="btn btn-small" id="btnOpenPreview">Open</button>
+          </div>
+          <div class="preview-frame-wrap">
+            <iframe id="previewFrame" title="Payslip preview"></iframe>
+            <div class="preview-empty hidden" id="previewEmpty">Upload a file to see the preview.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel-nav">
+        <button type="button" class="btn" data-go="2">← Back</button>
+        <button type="button" class="btn btn-primary" data-go="4">Continue to export →</button>
       </div>
     </section>
 
-    <!-- STEP 4 -------------------------------------------------------------->
-    <section class="card step" id="step4">
-      <div class="step-head">
-        <span class="step-num">4</span>
+    <!-- ================= STEP 4: EXPORT ================= -->
+    <section class="panel hidden" id="panel4">
+      <div class="panel-head">
         <div>
-          <h2>Preview and export</h2>
-          <p>Export every payslip at once: one combined PDF, or a ZIP with one PDF per employee.</p>
+          <h2>Export</h2>
+          <p class="muted">Everything is generated on this computer. Large files take a few seconds.</p>
         </div>
       </div>
-      <div class="step-body">
-        <div class="preview-bar">
-          <label>Preview employee
-            <select id="previewSelect" disabled><option>Upload a file first</option></select>
-          </label>
-          <button type="button" class="btn btn-small" id="btnOpenPreview" disabled>Open preview in new tab</button>
-        </div>
-        <div class="preview-frame-wrap">
-          <iframe id="previewFrame" title="Payslip preview"></iframe>
-          <div class="preview-empty" id="previewEmpty">Upload a file to see the preview.</div>
-        </div>
 
-        <div class="export-bar">
-          <label class="check"><input type="checkbox" id="skipErrors" checked> Skip rows with errors (recommended)</label>
-          <div class="actions">
-            <button type="button" class="btn btn-primary" id="btnExportPdf" disabled>Download all as one PDF</button>
-            <button type="button" class="btn btn-primary" id="btnExportZip" disabled>Download ZIP (one PDF per employee)</button>
-            <button type="button" class="btn btn-ghost hidden" id="btnCancel">Cancel</button>
-          </div>
-        </div>
-        <div class="progress hidden" id="progress">
-          <div class="progress-bar"><div id="progressFill"></div></div>
-          <div class="muted small" id="progressText"></div>
-        </div>
-        <div id="exportState"></div>
-        <div id="exportMessage"></div>
+      <div class="export-summary" id="exportSummary"></div>
+      <div id="exportState"></div>
+
+      <label class="check" style="margin:14px 0"><input type="checkbox" id="skipErrors" checked> Skip rows with errors (recommended)</label>
+
+      <div class="export-buttons">
+        <button type="button" class="export-btn" id="btnExportPdf" disabled>
+          <span class="export-btn-title">One PDF, all payslips</span>
+          <span class="export-btn-sub">Best for printing or archiving. One page per employee.</span>
+        </button>
+        <button type="button" class="export-btn" id="btnExportZip" disabled>
+          <span class="export-btn-title">ZIP, one PDF per employee</span>
+          <span class="export-btn-sub">Best for emailing or sharing each payslip individually.</span>
+        </button>
+      </div>
+      <button type="button" class="btn btn-ghost hidden" id="btnCancel">Cancel</button>
+
+      <div class="progress hidden" id="progress">
+        <div class="progress-bar"><div id="progressFill"></div></div>
+        <div class="muted small" id="progressText"></div>
+      </div>
+      <div id="exportMessage"></div>
+
+      <div class="panel-nav">
+        <button type="button" class="btn" data-go="3">← Back</button>
+        <button type="button" class="btn btn-ghost" id="btnStartOver">Start over with another file</button>
       </div>
     </section>
 
     <footer class="page-footer muted small">
-      Runs entirely in your browser. You can save this page folder on a USB stick or shared drive and open <code>index.html</code> without internet.
-      Open source libraries: SheetJS, jsPDF, JSZip.
+      Runs entirely in your browser. Save this folder on a USB stick or shared drive and open <code>index.html</code> without internet.
     </footer>
   </main>
 
@@ -212,6 +290,7 @@
   <script src="js/vendor/jspdf.umd.min.js"></script>
   <script src="js/vendor/jszip.min.js"></script>
   <script src="js/schema.js"></script>
+  <script src="js/xlsx-images.js"></script>
   <script src="js/pdf.js"></script>
   <script src="js/app.js"></script>
 </body>
