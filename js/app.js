@@ -1141,6 +1141,19 @@
   // Bulk downloads, printing and records sit under "More".
   // ---------------------------------------------------------------------------
   var fsaSupported = typeof window.showDirectoryPicker === 'function';
+  // What this device is decides which ways to send it offers (packs need a computer; phones share files).
+  var DEVICE = (function () {
+    var ua = navigator.userAgent || '';
+    var plat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
+    if (/Android/i.test(ua)) return 'android';
+    if (/iPhone|iPad|iPod/i.test(ua) || (/Mac/i.test(plat) && navigator.maxTouchPoints > 1)) return 'ios';
+    if (/CrOS/i.test(ua)) return 'chromeos';
+    if (/Win/i.test(plat) || /Windows/i.test(ua)) return 'windows';
+    if (/Mac/i.test(plat) || /Mac OS X/i.test(ua)) return 'mac';
+    if (/Linux/i.test(plat) || /Linux/i.test(ua)) return 'linux';
+    return 'other';
+  })();
+  var isPhone = DEVICE === 'android' || DEVICE === 'ios';
   var canShareFiles = (function () {
     try {
       return !!(navigator.canShare && navigator.canShare({ files: [new File([new Blob(['x'], { type: 'application/pdf' })], 'x.pdf', { type: 'application/pdf' })] }));
@@ -1339,9 +1352,11 @@
   }
 
   // --- "Send all" packs: one double-click sends every email from the user's own mailbox ---------------
+  // Each pack picks the way by itself: the computer's mail program (classic Outlook / Apple Mail) if it
+  // answers, otherwise a Microsoft sign-in or the email provider's mail server, from the sender address.
   var PACKS = {
-    windows: { app: 'classic Outlook', title: 'Send everyone at once with Outlook', folder: 'Send all (Outlook)', os: 'Windows' },
-    mac: { app: 'Apple Mail', title: 'Send everyone at once with Apple Mail', folder: 'Send all (Apple Mail)', os: 'Mac' }
+    windows: { app: 'classic Outlook', title: 'Send everyone at once (Windows)', folder: 'Send all (Windows)', os: 'Windows 10 or 11' },
+    mac: { app: 'Apple Mail', title: 'Send everyone at once (Mac or Linux)', folder: 'Send all (Mac and Linux)', os: 'macOS or Linux' }
   };
 
   function openSendPack(platform) {
@@ -1355,13 +1370,12 @@
       className: 'send-pack',
       label: pk.title,
       html: '<h2>' + pk.title + '</h2>' +
-        '<p class="muted">One double-click sends every email from your own ' + (win ? 'Outlook' : 'Mail') + ', with each employee\'s PDF attached' + (lockOn('email') ? ' and locked' : '') + '. It pauses a few seconds between emails and asks you to type YES before it starts.</p>' +
+        '<p class="muted">One double-click sends every email from your own mailbox, with each employee\'s PDF attached' + (lockOn('email') ? ' and locked' : '') + '. It pauses a few seconds between emails and asks you to type YES before it starts.</p>' +
         '<ul class="sp-facts"><li><b id="spCount"></b> emails in the pack</li>' +
         (noEmail ? '<li>' + plural(noEmail, 'employee has', 'employees have') + ' no email: send theirs on WhatsApp or print them.</li>' : '') +
         (already ? '<li><label class="check"><input type="checkbox" id="spIncludeSent"> Also include the ' + plural(already, 'person', 'people') + ' already sent</label></li>' : '') +
-        (win ? '<li>Works best with <b>classic Outlook</b>. With New Outlook, or if Outlook will not answer, it sends through your mailbox instead (it asks for your email password).</li></ul>'
-          : '<li>Needs <b>' + pk.app + '</b> on ' + pk.os + '.</li></ul>') +
-        '<ol class="sp-steps"><li>Unzip the pack.</li><li>' + (win ? 'Double-click <b>Check the pack</b>: it says whether Outlook is ready.</li><li>' : '') + 'Double-click <b>1 - Send test to me</b> and check the email you receive.</li><li>Double-click <b>2 - Send all</b> and type YES.</li><li>When it is done, load its <b>delivery-log.csv</b> here (More → Restore ticks from a log).</li></ol>' +
+        '<li>Works on ' + pk.os + ' with any email: it uses <b>' + pk.app + '</b> if it is set up, otherwise it signs in with <b>Microsoft</b> (Microsoft 365, Outlook.com, New Outlook) or uses your <b>mail server</b> (Gmail, Zoho, company mail).' + (state.company.senderEmail ? ' Sender: ' + escapeHtml(state.company.senderEmail) + '.' : '') + '</li></ul>' +
+        '<ol class="sp-steps"><li>Unzip the pack.</li><li>Double-click <b>Check the pack</b>: it says how it will send.</li><li>Double-click <b>1 - Send test to me</b> and check the email you receive.</li><li>Double-click <b>2 - Send all</b> and type YES.</li><li>When it is done, load its <b>delivery-log.csv</b> here (More → Restore ticks from a log).</li></ol>' +
         '<div class="actions"><button type="button" class="btn btn-primary" data-sp="go">Download the pack</button><button type="button" class="btn btn-ghost" data-sp="no">Cancel</button></div>'
     });
     var count = function () {
@@ -1401,12 +1415,15 @@
         root.file('2 - Send all.bat', Delivery.windowsBat('', 'Payslips - send all'));
         root.file('Save as drafts instead.bat', Delivery.windowsBat('-Drafts', 'Payslips - save as drafts'));
         root.file('Check the pack.bat', Delivery.windowsBat('-Check', 'Payslips - check'));
+        root.file('Send without Outlook.bat', Delivery.windowsBat('-Route auto', 'Payslips - send all without Outlook'));
         root.file('send-all.ps1', Delivery.windowsSendScript(info));
         root.file('send-list.csv', Delivery.sendListCsv(items));
       } else {
         var exe = { unixPermissions: '755' };
         root.file('1 - Send test to me.command', Delivery.macCommand('test'), exe);
         root.file('2 - Send all.command', Delivery.macCommand('send'), exe);
+        root.file('Check the pack.command', Delivery.macCommand('check'), exe);
+        root.file('Send without Apple Mail.command', Delivery.macCommand('send', 'auto'), exe);
         root.file('send-all.sh', Delivery.macSendScript(info), exe);
         root.file('send-one.applescript', Delivery.macSendOneAppleScript());
         root.file('send-list.tsv', Delivery.sendListTsv(items));
@@ -1464,8 +1481,25 @@
   $('btnExportPdf').addEventListener('click', exportCombinedPdf);
   $('btnExportZip').addEventListener('click', exportZip);
   $('btnExportFolder').addEventListener('click', exportFolder);
-  $('btnPackWin').addEventListener('click', function () { openSendPack('windows'); });
-  $('btnPackMac').addEventListener('click', function () { openSendPack('mac'); });
+  // the pack for this computer first; the other one for a different computer
+  var packHere = DEVICE === 'windows' ? 'windows' : DEVICE === 'mac' || DEVICE === 'linux' ? 'mac' : '';
+  var packOther = packHere === 'windows' ? 'mac' : 'windows';
+  (function () {
+    var label = { windows: 'Send-all pack for Windows', mac: 'Send-all pack for Mac or Linux' };
+    if (packHere) {
+      $('btnPack').textContent = label[packHere];
+      $('btnPackOther').textContent = 'or for ' + (packOther === 'windows' ? 'a Windows computer' : 'a Mac or Linux computer');
+      $('btnPackAlt').hidden = true;
+    } else {
+      $('sendAllIntro').textContent = 'Sending every email at once needs a Windows, Mac or Linux computer. Here, send them one by one, or download a pack for the computer:';
+      $('btnPack').textContent = 'Pack for Windows';
+      $('btnPackOther').hidden = true;
+      $('btnPackAlt').textContent = 'Pack for Mac or Linux';
+    }
+  })();
+  $('btnPack').addEventListener('click', function () { openSendPack(packHere || 'windows'); });
+  $('btnPackOther').addEventListener('click', function () { openSendPack(packOther); });
+  $('btnPackAlt').addEventListener('click', function () { openSendPack('mac'); });
   $('btnMergePack').addEventListener('click', downloadMergePack);
   $('btnRegister').addEventListener('click', downloadRegister);
   if (!fsaSupported) $('btnExportFolder').classList.add('hidden');
@@ -1668,45 +1702,59 @@
     });
   }
 
-  // --- email: which Outlook decides how one click works ------------------------
+  // --- email: the user's email app decides how one click works --------------------------------
   // classic: a ready email with the PDF attached (.eml; the browser can open it automatically after a
-  //          one-time setting). new / web: the compose window opens with everything typed and the PDF
-  //          is downloaded to drag in, because a web page cannot attach files to those.
-  var OUTLOOK_KINDS = {
+  //          one-time setting). share (phones): the share sheet hands the PDF to the mail app. The others
+  //          open a new email with everything typed and download the PDF to drag in, because a web page
+  //          cannot attach files to them.
+  var EMAIL_KINDS = {
     classic: { name: 'Classic Outlook', button: 'Open in Outlook' },
     'new': { name: 'New Outlook', button: 'Open in Outlook' },
-    web: { name: 'Outlook on the web', button: 'Open in Outlook on the web' }
+    web: { name: 'Outlook on the web', button: 'Open in Outlook on the web' },
+    gmail: { name: 'Gmail', button: 'Open in Gmail' },
+    share: { name: 'the phone\'s email app', button: 'Share to email' },
+    app: { name: 'your email app', button: 'Open in email app' }
   };
 
-  function outlookKind() {
+  function emailKind() {
     var k = Vault.prefs().outlook;
-    return OUTLOOK_KINDS[k] ? k : '';
+    if (k === 'share' && !canShareFiles) return '';
+    return EMAIL_KINDS[k] ? k : '';
   }
 
   // Calls back straight from the click (asking first if needed), so the browser still allows the
   // download and the new tab.
-  function withOutlook(cb) {
-    var k = outlookKind();
+  function withEmailApp(cb) {
+    var k = emailKind();
     if (k) { cb(k); return; }
-    askOutlook(cb);
+    askEmailApp(cb);
   }
 
-  function askOutlook(cb) {
-    var cur = outlookKind();
+  function askEmailApp(cb) {
+    var cur = emailKind();
     var card = function (k, title, text) {
       return '<button type="button" class="ol-card' + (cur === k ? ' on' : '') + '" data-ol="' + k + '"><b>' + title + '</b><span>' + text + '</span></button>';
     };
+    var cards = {
+      classic: card('classic', 'Outlook on my computer (classic)', 'The Outlook program on Windows with a File menu. Emails open ready to send, with the PDF attached.'),
+      'new': card('new', 'New Outlook', 'The newer Outlook app for Windows (it has a "New Outlook" switch at the top). The email opens ready; you drag in the PDF.'),
+      web: card('web', 'Outlook in the browser', 'outlook.office.com or outlook.com. The email opens in a new tab, ready; you drag in the PDF.'),
+      gmail: card('gmail', 'Gmail in the browser', 'mail.google.com, also Google Workspace company email. The email opens in a new tab, ready; you drag in the PDF.'),
+      share: card('share', 'The email app on this phone', 'Gmail, Outlook or Mail on the phone: the PDF is attached for you; paste the address (it is copied).'),
+      app: card('app', isPhone ? 'Another email app' : 'Another email app on this ' + (DEVICE === 'mac' ? 'Mac' : 'computer'), (DEVICE === 'mac' ? 'Apple Mail or Outlook for Mac. ' : isPhone ? '' : 'Thunderbird, Windows Mail and others. ') + 'The email opens ready; you attach the PDF.')
+    };
+    var order = isPhone ? ['share', 'gmail', 'web', 'app']
+      : DEVICE === 'windows' ? ['classic', 'new', 'web', 'gmail', 'app']
+      : ['app', 'web', 'gmail'];
+    if (!canShareFiles) order = order.filter(function (k) { return k !== 'share'; });
     var m = Guide.modal({
       className: 'outlook-pick',
-      label: 'Which Outlook do you use?',
-      html: '<h2>Which Outlook do you use?</h2><p class="muted">Asked once on this computer; change it any time on the Send step.</p>' +
-        '<div class="ol-cards">' +
-        card('classic', 'Outlook on my computer (classic)', 'The Outlook program on Windows with a File menu. Emails open ready to send, with the PDF attached.') +
-        card('new', 'New Outlook', 'The newer Outlook app for Windows (it has a "New Outlook" switch at the top). The email opens ready; you drag in the PDF.') +
-        card('web', 'Outlook in the browser', 'outlook.office.com. The email opens in a new tab, ready; you drag in the PDF.') +
-        '</div><p class="muted small">Not sure? If Outlook has a <b>File</b> menu at the top left, it is classic.</p>',
+      label: 'How do you send email?',
+      html: '<h2>How do you send email?</h2><p class="muted">Asked once on this device; change it any time on the Send step.</p>' +
+        '<div class="ol-cards">' + order.map(function (k) { return cards[k]; }).join('') + '</div>' +
+        (DEVICE === 'windows' ? '<p class="muted small">Not sure? If Outlook has a <b>File</b> menu at the top left, it is classic.</p>' : ''),
       onClose: function (result) {
-        if (!OUTLOOK_KINDS[result]) return;
+        if (!EMAIL_KINDS[result]) return;
         Vault.setPrefs({ outlook: result });
         if (state.step === 4) renderSendSummary();
         if (cb) cb(result);
@@ -1731,7 +1779,7 @@
   function sendEmail(slip, done) {
     if (!slip.fields.email || !state.canSend) return;
     guarded(slip, function () {
-      withOutlook(function (kind) {
+      withEmailApp(function (kind) {
         var art = artifactFor(slip, lockOn('email'));
         var m = messageFor(slip, 'email');
         if (kind === 'classic') {
@@ -1739,11 +1787,23 @@
           downloadBlob(new Blob([eml], { type: 'message/rfc822' }), art.fileName.replace(/\.pdf$/, '.eml'));
           markSent(slip, 'outlook', 'ready Outlook email (PDF attached)');
           if (!Vault.prefs().emlHintDone) setTimeout(showEmlHint, 700);
+        } else if (kind === 'share') {
+          // the share sheet attaches the PDF; the mail app cannot be told the address, so it is copied
+          var file = new File([art.bytes], art.fileName, { type: 'application/pdf' });
+          try { navigator.clipboard.writeText(slip.fields.email).catch(function () {}); } catch (e) { /* no clipboard */ }
+          navigator.share({ files: [file], title: m.subject, text: m.text }).then(function () {
+            markSent(slip, 'outlook', 'PDF shared to the email app');
+            if (done) done(kind);
+          }).catch(function (err) {
+            if (err && err.name !== 'AbortError') Guide.toast({ kind: 'warn', html: 'Sharing did not work (' + escapeHtml(err.message) + '). Choose another email app with "change".' });
+          });
+          return;
         } else {
           downloadBlob(new Blob([art.bytes], { type: 'application/pdf' }), art.fileName);
           if (kind === 'web') window.open(Delivery.outlookWebLink(slip.fields.email, m.subject, m.text), '_blank', 'noopener');
+          else if (kind === 'gmail') window.open(Delivery.gmailComposeLink(slip.fields.email, m.subject, m.text), '_blank', 'noopener');
           else openMailto(Delivery.mailtoLink(slip.fields.email, m.subject, m.text));
-          markSent(slip, 'outlook', (kind === 'web' ? 'Outlook on the web' : 'New Outlook') + ' opened, PDF downloaded');
+          markSent(slip, 'outlook', EMAIL_KINDS[kind].name.replace(/^your /, '') + ' opened, PDF downloaded');
         }
         if (done) done(kind);
       });
@@ -1810,7 +1870,7 @@
   }
   $('panel4').addEventListener('click', function (e) {
     if (e.target.closest('[data-profile-edit]')) { e.preventDefault(); startEdit(); }
-    if (e.target.closest('[data-outlook-change]')) askOutlook();
+    if (e.target.closest('[data-outlook-change]')) askEmailApp();
     if (e.target.closest('[data-eml-hint]')) showEmlHint();
   });
 
@@ -1841,8 +1901,8 @@
         : '<button type="button" class="link" id="btnReconnect" title="After a restart the browser needs your OK to write to the folder again">reconnect the folder for the log</button>') : ''
     ].filter(Boolean).join('<i class="dot-sep"></i>');
     if ($('btnReconnect')) $('btnReconnect').addEventListener('click', reconnectFolder);
-    var ok = outlookKind();
-    $('outlookLine').innerHTML = 'Email opens in <b>' + (ok ? OUTLOOK_KINDS[ok].name : 'Outlook') + '</b>' + (ok ? '' : ' (asked on the first email)') +
+    var ok = emailKind();
+    $('outlookLine').innerHTML = 'Email opens in <b>' + (ok ? EMAIL_KINDS[ok].name : 'your email app') + '</b>' + (ok ? '' : ' (asked on the first email)') +
       ' · <button type="button" class="link inline" data-outlook-change>' + (ok ? 'change' : 'choose now') + '</button>' +
       (ok === 'classic' ? ' · <button type="button" class="link inline" data-eml-hint>open emails automatically</button>' : '');
     var next = nextUnsent();
@@ -1940,7 +2000,7 @@
         '<td class="acts">' +
         '<button type="button" class="btn btn-small" data-act="view" data-i="' + i + '">' + ICONS.eye + 'View</button>' +
         '<button type="button" class="btn btn-small btn-wa" data-act="wa" data-i="' + i + '"' + (mob ? dis : ' disabled') + ' title="' + (mob ? 'Send on WhatsApp' : 'No mobile number in the file') + '">' + ICONS.wa + 'WhatsApp</button>' +
-        '<button type="button" class="btn btn-small" data-act="eml" data-i="' + i + '"' + (mail ? dis : ' disabled') + ' title="' + (mail ? 'Send by email (Outlook)' : 'No email address in the file') + '">' + ICONS.mail + 'Email</button>' +
+        '<button type="button" class="btn btn-small" data-act="eml" data-i="' + i + '"' + (mail ? dis : ' disabled') + ' title="' + (mail ? 'Send by email' : 'No email address in the file') + '">' + ICONS.mail + 'Email</button>' +
         '<button type="button" class="btn btn-small btn-ghost icon-only" data-act="pdf" data-i="' + i + '" title="Download the PDF" aria-label="Download the PDF">' + ICONS.download + '</button>' +
         '</td></tr>';
     }).join('') || '<tr><td colspan="4" class="muted">Nobody matches.</td></tr>';
@@ -2039,13 +2099,14 @@
         '<button type="button" class="btn btn-wa btn-block" data-v="wa"' + (s.fields.mobile ? dis : ' disabled') + '>' + ICONS.wa + 'Send on WhatsApp</button>' +
         '<span class="vw-sub">' + (s.fields.mobile ? '+' + escapeHtml(s.fields.mobile) + (waLocked ? ' · ' + ICONS.lock + 'locked' : ' · not locked') : 'No mobile number in the file') + '</span>' +
         (canShareFiles && s.fields.mobile ? '<button type="button" class="link vw-share" data-v="share"' + dis + '>' + ICONS.share + 'or share the file to WhatsApp</button>' : '') +
-        '<button type="button" class="btn btn-block" data-v="eml"' + (s.fields.email ? dis : ' disabled') + '>' + ICONS.mail + (outlookKind() ? OUTLOOK_KINDS[outlookKind()].button : 'Send by email') + '</button>' +
-        '<span class="vw-sub">' + (s.fields.email ? escapeHtml(s.fields.email) + (emLocked ? ' · ' + ICONS.lock + 'locked' : ' · not locked') + (outlookKind() ? ' · ' + OUTLOOK_KINDS[outlookKind()].name + ' <button type="button" class="link inline" data-v="outlook">change</button>' : '') : 'No email address in the file') + '</span>' +
+        '<button type="button" class="btn btn-block" data-v="eml"' + (s.fields.email ? dis : ' disabled') + '>' + ICONS.mail + (emailKind() ? EMAIL_KINDS[emailKind()].button : 'Send by email') + '</button>' +
+        '<span class="vw-sub">' + (s.fields.email ? escapeHtml(s.fields.email) + (emLocked ? ' · ' + ICONS.lock + 'locked' : ' · not locked') + (emailKind() ? ' · ' + EMAIL_KINDS[emailKind()].name + ' <button type="button" class="link inline" data-v="outlook">change</button>' : '') : 'No email address in the file') + '</span>' +
         '<button type="button" class="btn btn-ghost btn-block" data-v="pdf">' + ICONS.download + 'Download PDF</button>' +
         '</div>' +
         (justSent === 'wa' ? '<p class="vw-hint">WhatsApp is opening with the message typed. The PDF is in your Downloads: drag it into the chat, then press Send.</p>' : '') +
         (justSent === 'eml-classic' ? '<p class="vw-hint">' + (Vault.prefs().emlHintDone ? 'Outlook opens the email ready, with the PDF attached: press Send.' : 'The email is in your downloads: open it and Outlook shows it ready, with the PDF attached. Press Send.') + '</p>' : '') +
-        (justSent === 'eml-new' || justSent === 'eml-web' ? '<p class="vw-hint">Outlook is opening with the address, subject and message typed. The PDF is in your downloads: drag it into the email, then press Send.</p>' : '') +
+        (/^eml-(new|web|gmail|app)$/.test(justSent) ? '<p class="vw-hint">' + (justSent === 'eml-gmail' ? 'Gmail' : justSent === 'eml-app' ? 'Your email app' : 'Outlook') + ' is opening with the address, subject and message typed. The PDF is in your downloads: drag it into the email, then press Send.</p>' : '') +
+        (justSent === 'eml-share' ? '<p class="vw-hint">The PDF went to the email app with the message. The address is copied: paste it into To, then press Send.</p>' : '') +
         (justSent ? '<button type="button" class="btn btn-primary btn-block" data-v="nextUnsent">Next payslip →</button>' : '');
     }
 
@@ -2059,7 +2120,7 @@
       else if (v === 'wa') { sendWhatsApp(s); justSent = 'wa'; show(false); }
       else if (v === 'share') { shareWhatsApp(s); }
       else if (v === 'eml') { sendEmail(s, function (kind) { justSent = 'eml-' + kind; show(false); }); }
-      else if (v === 'outlook') { askOutlook(function () { show(false); }); }
+      else if (v === 'outlook') { askEmailApp(function () { show(false); }); }
       else if (v === 'pdf') downloadPdf(s);
       else if (v === 'nextUnsent') {
         var n = nextUnsent(s);

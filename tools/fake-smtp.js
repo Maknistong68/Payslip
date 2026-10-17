@@ -17,6 +17,11 @@ net.createServer(function (sock) {
   var user = '';
   var msg = { from: '', to: [], user: '' };
   var say = function (line) { sock.write(line + '\r\n'); };
+  var plainAuth = function (b64) {
+    var plain = Buffer.from(b64, 'base64').toString('utf8').split('\0');
+    if (refuse && plain[2] === refuse) say('535 5.7.8 Username and Password not accepted');
+    else { msg.user = plain[1]; say('235 2.7.0 Authentication successful'); }
+  };
   say('220 fake-smtp ready');
   sock.on('data', function (chunk) {
     buf += chunk.toString('latin1');
@@ -39,6 +44,7 @@ net.createServer(function (sock) {
       var line = buf.slice(0, nl);
       buf = buf.slice(nl + 2);
       var decode = function (b64) { return Buffer.from(b64, 'base64').toString('utf8'); };
+      if (authStep === 'plain') { authStep = ''; plainAuth(line); continue; }
       if (authStep === 'user') { user = decode(line); authStep = 'pass'; say('334 UGFzc3dvcmQ6'); continue; }
       if (authStep === 'pass') {
         authStep = '';
@@ -52,11 +58,8 @@ net.createServer(function (sock) {
         var parts = line.split(' ');
         if (parts[1].toUpperCase() === 'LOGIN') {
           if (parts[2]) { user = decode(parts[2]); authStep = 'pass'; say('334 UGFzc3dvcmQ6'); } else { authStep = 'user'; say('334 VXNlcm5hbWU6'); }
-        } else {
-          var plain = decode(parts[2] || '').split('\0');
-          if (refuse && plain[2] === refuse) say('535 5.7.8 Username and Password not accepted');
-          else { msg.user = plain[1]; say('235 2.7.0 Authentication successful'); }
-        }
+        } else if (parts[2]) plainAuth(parts[2]);
+        else { authStep = 'plain'; say('334 '); }
       }
       else if (cmd === 'MAIL' && !msg.user) say('530 5.7.57 Client not authenticated to send mail');
       else if (cmd === 'MAIL') { msg.from = line.replace(/^MAIL FROM:\s*/i, ''); say('250 OK'); }

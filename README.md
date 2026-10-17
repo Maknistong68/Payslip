@@ -57,32 +57,46 @@ The steps:
    - **Send on WhatsApp** opens the chat with the right number and the message typed, and downloads the PDF to
      attach (drag it into the chat). On phones and Chrome/Edge with file sharing, *share the file to WhatsApp*
      hands the PDF over directly.
-   - **Send by email** (*Open in Outlook*) works with the Outlook the user picks once on this computer
-     (changeable on the Send step):
+   - **Send by email** works with the email app the user picks once on this device (changeable on the Send
+     step); the choices shown depend on the device:
      - *Classic Outlook* (Windows desktop): a ready email with the PDF attached (`.eml`). A one-time hint shows
        the browser setting *Always open files of this type* (Firefox: *Always Open Similar Files*); after that,
        every click opens the email straight in Outlook, ready to send.
-     - *New Outlook* (Windows app): opens a new email with address, subject and message typed (`mailto:`), and
-       downloads the PDF to drag in.
-     - *Outlook on the web*: opens the compose window on outlook.office.com, typed the same way, and downloads
-       the PDF to drag in.
-     A web page cannot attach files to New Outlook or Outlook on the web, and cannot open the classic email
-     without that one-time browser setting; sending directly would need a Microsoft sign-in and API.
+     - *New Outlook* or *another email app* (Apple Mail, Outlook for Mac, Thunderbird): opens a new email with
+       address, subject and message typed (`mailto:`), and downloads the PDF to drag in.
+     - *Outlook in the browser* / *Gmail in the browser*: opens the compose window on outlook.office.com or
+       mail.google.com, typed the same way, and downloads the PDF to drag in.
+     - *The email app on this phone* (Android, iPhone): the share sheet hands the PDF and message to Gmail,
+       Outlook or Mail; the address is copied to paste into To.
+     A web page cannot attach files to a compose window, and cannot open the classic email without that
+     one-time browser setting.
    - **Download** saves the single PDF.
    - **Password on the PDF**, one switch per channel: WhatsApp on (recommended), email off, downloads on; the
      password is the Iqama / National ID number by default (or Iqama + birth day and month, date of birth, or a
      password column). The message includes the password hint only when that channel's PDF is locked.
-   - **Send every email at once** (hands-free, from the user's own mailbox): *Windows · Outlook* or
-     *Mac · Apple Mail* downloads a pack. Unzip, double-click **1 - Send test to me** (the first employee's email
-     goes to yourself), then **2 - Send all**: it shows the count and the first recipient, waits for **YES**,
-     sends one email every 2.5 seconds (Microsoft 365 allows about 30 a minute), lists each one, and writes
-     `delivery-log.csv` as it goes. Ctrl+C stops it; running it again skips everyone already sent. Loading the
-     log under *More → Restore ticks from a log* ticks everyone. People already ticked are left out unless
-     chosen. Windows also has *Save as drafts instead* and *Check the pack* (says whether classic Outlook answers,
-     and why not: New Outlook, an "as administrator" mismatch, 32-bit Office, which it retries by itself). Without
-     classic Outlook it offers to send through the mailbox's mail server instead (Microsoft 365, Outlook.com or
-     Gmail over TLS; the password is asked each run and never saved). PowerShell only, no macros or installs. The Mac pack uses Apple Mail through AppleScript (allow "control Mail" once; open
-     the `.command` file with right-click → Open the first time).
+   - **Send every email at once** (hands-free, from the user's own mailbox): the page offers the pack for the
+     computer it runs on (*Windows*, or *Mac or Linux*; on phones it explains a computer is needed and still
+     offers both). Unzip, double-click **Check the pack** (says how it will send), **1 - Send test to me** (the
+     first employee's email goes to yourself), then **2 - Send all**: it shows the count and the first recipient,
+     waits for **YES**, sends one email every 2.5 seconds (Microsoft 365 allows about 30 a minute), lists each one,
+     and writes `delivery-log.csv` as it goes. Ctrl+C stops it; running it again skips everyone already sent.
+     Loading the log under *More → Restore ticks from a log* ticks everyone. People already ticked are left out
+     unless chosen. Each pack chooses the way to send by itself:
+     1. the computer's mail program if it answers: classic Outlook (Windows, through COM; New Outlook cannot be
+        scripted) or Apple Mail with an account (Mac, through AppleScript);
+     2. otherwise, by the sender address (domain, then its MX record): Microsoft 365 and Outlook.com addresses
+        use a **Microsoft sign-in** (device code shown in the window, the browser opens Microsoft's page; then
+        Microsoft Graph `sendMail`), through Microsoft's own public "Microsoft Graph Command Line Tools" app
+        with only *Mail.Send*; Gmail / Google Workspace and every other provider use the **mail server**
+        (SMTP with STARTTLS; suggested server for Gmail, Zoho incl. zoho.sa, GoDaddy, Hostinger, Yahoo, iCloud,
+        else `mail.<domain>`), with an app password for Gmail. Passwords and tokens live only for the run.
+     Clear messages for New Outlook, "as administrator" mismatches (80080005), 32-bit Office (80040154: retried
+     in 32-bit PowerShell by itself), Outlook's programmatic-access block, admin-approval or blocked sign-ins,
+     refused passwords and unreachable servers; it stops at the first such failure instead of trying everyone.
+     *Send without Outlook* / *Send without Apple Mail* skip the mail program; Windows also has *Save as drafts
+     instead* (classic Outlook). Windows needs only the built-in PowerShell (5.1 or 7); Mac and Linux only bash
+     and curl (open the `.command` file with right-click → Open the first time; on Linux run
+     `bash send-all.sh`).
    - **More**: all PDFs to a folder or a ZIP, one PDF to print, the signature register, the Thunderbird Mail
      Merge pack for Gmail or any mailbox, the delivery log CSV, restore ticks from a log, clear ticks.
    Rows are ticked as you send; the ticks survive reloads and export as a delivery log CSV with file hashes.
@@ -177,7 +191,7 @@ js/schema.js      Excel template definition, tolerant parser, column guessing an
 js/template-xlsx.js  the styled, validated Excel template (built with ExcelJS, loaded only when downloading)
 js/xlsx-images.js reads pictures out of an .xlsx and embeds pictures into one (JSZip)
 js/pdf.js         13 PDF templates (each a small design spec), thumbnails, display options, passwords, register
-js/delivery.js    .eml drafts, mail-merge CSV, WhatsApp/Gmail links, Outlook macro and guides
+js/delivery.js    .eml drafts, mail-merge CSV, WhatsApp/Gmail/Outlook links, the send-all scripts and guides
 js/fonts/         Amiri Regular/Bold as base64 for Arabic text, plus its OFL licence
 js/app.js         the step-by-step UI, company profile, preview, viewer and sending, session restore
 js/art.js         logo, the mascot "Qasi" and its moods, confetti, count-up numbers, card spotlight
@@ -214,9 +228,13 @@ No build step; edit the files and reload the page.
 - The viewer shows the PDF with the browser's built-in PDF viewer; some phone browsers show an
   "Open in a new tab" link instead.
 - The send-all packs are scripts: a company that blocks PowerShell scripts (Windows) or unsigned scripts
-  (Mac) stops them; the per-person buttons still work. The mail-server route needs Authenticated SMTP, which some
-  Microsoft 365 companies turn off, and Gmail or two-step sign-in needs an app password. The Windows script is tested with PowerShell against a
-  stand-in for Outlook and a local test mail server, and the Mac script with a stand-in for Apple Mail (`tools/test.js`).
+  (Mac) stops them; the per-person buttons still work on any computer or phone. Sending every email at once
+  from a phone is not possible without a server. The Microsoft sign-in can be refused where IT requires
+  administrator approval for apps or blocks device-code sign-ins; Microsoft no longer accepts passwords for
+  Outlook.com mail servers and turns them off by default for Microsoft 365 at the end of 2026, which is why
+  Microsoft addresses use the sign-in. Gmail needs 2-Step Verification and an app password. Tested with
+  PowerShell 7 and bash against stand-ins for Outlook, Apple Mail, a mail server and Microsoft sign-in/Graph
+  (`tools/fake-*.js`, `tools/test.js`), not against live Microsoft or Google accounts.
 - The `.eml` drafts open as editable drafts only in classic Outlook for Windows (build 2109 or newer).
   New Outlook, Outlook for Mac, Apple Mail and web mail open them read-only.
 - PDF passwords use the 40-bit RC4 standard security handler built into jsPDF: it stops casual opening and

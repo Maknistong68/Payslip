@@ -954,6 +954,7 @@ button.offline-badge:hover { transform: translateY(-1px); }
 
 /* "Send all" packs */
 .send-all-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.send-all-line [hidden] { display: none !important; }
 .send-pack { width: min(100%, 560px); }
 .sp-facts { margin: 14px 0 10px; padding-left: 20px; display: grid; gap: 4px; font-size: 0.92rem; }
 .sp-facts .check { display: inline-flex; gap: 8px; align-items: center; }

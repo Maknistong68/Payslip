@@ -465,6 +465,21 @@ var Delivery = require(path.join(__dirname, '..', 'js', 'delivery.js'));
   }
   assert.ok(/^@echo off\r\n/.test(Delivery.windowsBat('-Test', 'x')) && Delivery.windowsBat('-Test', 'x').indexOf('send-all.ps1" -Test') > 0);
 
+  // a fake server process (mail server or Microsoft) for the length of one run
+  var withServer = function (helper, serverArgs, fn) {
+    var box = fs.mkdtempSync(path.join(os.tmpdir(), 'srv-'));
+    var server = cp.spawn(process.execPath, [path.join(__dirname, helper), box].concat(serverArgs), { stdio: 'ignore' });
+    try {
+      var portFile = path.join(box, 'port');
+      for (var n = 0; n < 100 && !fs.existsSync(portFile); n++) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+      return fn(fs.readFileSync(portFile, 'utf8'), box);
+    } finally { server.kill(); }
+  };
+  var inBox = function (box, ext) {
+    return fs.readdirSync(box).filter(function (f) { return /^\d+\./.test(f) && path.extname(f) === ext; })
+      .sort(function (a, b) { return parseInt(a, 10) - parseInt(b, 10); }).map(function (f) { return fs.readFileSync(path.join(box, f), 'utf8'); });
+  };
+
   if (has('pwsh')) {
     var ps = function (dir, mode, fail) {
       cp.execFileSync('pwsh', ['-NoProfile', '-File', path.join(__dirname, 'fake-outlook.ps1'), '-Pack', dir, '-Mode', mode, '-FailFor', fail || ''], { stdio: 'pipe' });
@@ -495,32 +510,41 @@ var Delivery = require(path.join(__dirname, '..', 'js', 'delivery.js'));
     assert.strictEqual(cd.filter(function (x) { return x.op === 'save'; }).length, 3);
     assert.ok(!fs.existsSync(path.join(d, 'delivery-log.csv')), 'drafts are not ticked as sent');
 
-    // no classic Outlook here: Check says so, and the mail server path sends instead
-    var noOutlook = cp.execFileSync('pwsh', ['-NoProfile', '-File', path.join(d, 'send-all.ps1'), '-Check', '-Yes'], { encoding: 'utf8' });
-    assert.ok(/Classic Outlook is not installed/.test(noOutlook) && /mail server/.test(noOutlook) && /Nothing was sent/.test(noOutlook));
-    var smtp = function (pack, password, mailDir) {
-      var server = cp.spawn(process.execPath, [path.join(__dirname, 'fake-smtp.js'), mailDir, 'wrong'], { stdio: 'ignore' });
-      try {
-        var portFile = path.join(mailDir, 'port');
-        for (var n = 0; n < 100 && !fs.existsSync(portFile); n++) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
-        var args = ['-NoProfile', '-File', path.join(pack, 'send-all.ps1'), '-Smtp', '-From', 'payroll@example.com', '-Server', '127.0.0.1:' + fs.readFileSync(portFile, 'utf8'), '-NoTls', '-Yes', '-Delay', '0'];
-        var r = cp.spawnSync('pwsh', args, { env: Object.assign({}, process.env, { PAYSLIP_SMTP_PASSWORD: password }), encoding: 'utf8' });
-        return r.stdout + r.stderr;
-      } finally { server.kill(); }
+    // without classic Outlook: the email address decides the way (Microsoft sign-in or mail server)
+    var pwshRun = function (pack, args, env) {
+      var r = cp.spawnSync('pwsh', ['-NoProfile', '-File', path.join(pack, 'send-all.ps1')].concat(args), { env: Object.assign({}, process.env, { PAYSLIP_MX: 'none' }, env || {}), encoding: 'utf8' });
+      return { out: r.stdout + r.stderr, code: r.status };
     };
-    var mailbox = function (mailDir) {
-      return fs.readdirSync(mailDir).filter(function (f) { return /\.eml$/.test(f); }).sort().map(function (f) { return fs.readFileSync(path.join(mailDir, f), 'utf8'); });
+    var chk = pwshRun(d, ['-Check', '-Yes']).out;
+    assert.ok(/Classic Outlook is not on this computer/.test(chk) && /asks your email address/.test(chk) && /Nothing was sent/.test(chk), chk);
+    chk = pwshRun(d, ['-Check', '-Yes', '-From', 'payroll@contoso.com'], { PAYSLIP_MX: 'contoso-com.mail.protection.outlook.com' }).out;
+    assert.ok(/Microsoft 365/.test(chk) && /signs in with Microsoft/.test(chk), 'Microsoft 365 found from the MX record');
+    assert.ok(/smtp\.gmail\.com:587/.test(pwshRun(d, ['-Check', '-Yes', '-From', 'hr@gmail.com']).out));
+    assert.ok(/smtp\.zoho\.sa:587/.test(pwshRun(d, ['-Check', '-Yes', '-From', 'hr@acme.sa'], { PAYSLIP_MX: 'mx.zoho.sa' }).out));
+    assert.ok(/mail\.acme\.sa:587/.test(pwshRun(d, ['-Check', '-Yes', '-From', 'hr@acme.sa']).out));
+    assert.ok(/Outlook\.com/.test(pwshRun(d, ['-Check', '-Yes', '-From', 'hr@hotmail.com']).out));
+    var skipOl = pwshRun(d, ['-Check', '-Yes', '-From', 'hr@gmail.com']).out;
+    assert.ok(/smtp\.gmail\.com/.test(skipOl));
+    var auto = pwshRun(d, ['-Route', 'auto', '-Yes', '-Delay', '0']);
+    assert.ok(auto.code === 1 && /type your email address/.test(auto.out) && !/Classic Outlook/.test(auto.out), '"Send without Outlook" skips Outlook');
+    var noAddr = pwshRun(d, ['-Yes', '-Delay', '0']);
+    assert.ok(noAddr.code === 1 && /type your email address/.test(noAddr.out), 'no address and no questions: stops');
+
+    // mail server (Gmail app password, Zoho, company mail)
+    var smtp = function (pack, password) {
+      return withServer('fake-smtp.js', ['wrong'], function (port, box) {
+        var r = pwshRun(pack, ['-Smtp', '-From', 'payroll@example.com', '-Server', '127.0.0.1:' + port, '-NoTls', '-Yes', '-Delay', '0'], { PAYSLIP_SMTP_PASSWORD: password });
+        return { out: r.out, mails: inBox(box, '.eml') };
+      });
     };
     var sp = makePack('win');
-    var refused = fs.mkdtempSync(path.join(os.tmpdir(), 'mail-'));
-    var out = smtp(sp, 'wrong', refused);
-    assert.ok(/refused the sign-in|app password/.test(out) && /Stopped before trying the others/.test(out), 'a refused password stops at once with a hint');
-    assert.strictEqual(mailbox(refused).length, 0);
+    var res = smtp(sp, 'wrong');
+    assert.ok(/refused the sign-in|app password/.test(res.out) && /Stopped before trying the others/.test(res.out), 'a refused password stops at once with a hint');
+    assert.strictEqual(res.mails.length, 0);
     assert.ok(!fs.existsSync(path.join(sp, 'delivery-log.csv')) || logIds(sp).length === 0);
-    var box = fs.mkdtempSync(path.join(os.tmpdir(), 'mail-'));
-    out = smtp(sp, 'secret', box);
-    assert.ok(/Done: 3 sent, 0 failed/.test(out), out);
-    var mails = mailbox(box);
+    res = smtp(sp, 'secret');
+    assert.ok(/Done: 3 sent, 0 failed/.test(res.out), res.out);
+    var mails = res.mails;
     assert.strictEqual(mails.length, 3);
     assert.ok(/X-Envelope-To: <ali@example\.com>/.test(mails[0]) && /X-Auth-User: payroll@example\.com/.test(mails[0]));
     assert.ok(/Content-Type: application\/pdf; name=E1\.pdf/.test(mails[0]) && /filename=E1\.pdf/.test(mails[0]), 'PDF attached as a PDF');
@@ -529,14 +553,55 @@ var Delivery = require(path.join(__dirname, '..', 'js', 'delivery.js'));
     assert.strictEqual(b64(mails[2]), 'Dear علي', 'Arabic body kept');
     assert.deepStrictEqual(logIds(sp), ['E1', 'E2', 'E3']);
     assert.ok(/sent by mail server/.test(fs.readFileSync(path.join(sp, 'delivery-log.csv'), 'utf8')));
-    var again = fs.mkdtempSync(path.join(os.tmpdir(), 'mail-'));
-    assert.ok(/sent already/.test(smtp(sp, 'secret', again)) && mailbox(again).length === 0, 'rerun sends nothing twice');
+    res = smtp(sp, 'secret');
+    assert.ok(/sent already/.test(res.out) && res.mails.length === 0, 'rerun sends nothing twice');
+
+    // Microsoft sign-in (New Outlook, Microsoft 365, Outlook.com): a code in the browser, then Graph
+    var graph = function (pack, mode, failFor, args, mx) {
+      return withServer('fake-graph.js', [mode, failFor || ''], function (port, box) {
+        var base = 'http://127.0.0.1:' + port;
+        var r = pwshRun(pack, args.concat(['-Yes', '-Delay', '0']), { PAYSLIP_MX: mx || 'contoso-com.mail.protection.outlook.com', PAYSLIP_AUTH_BASE: base, PAYSLIP_GRAPH_BASE: base + '/v1.0', PAYSLIP_NO_BROWSER: '1', PAYSLIP_POLL_MS: '10' });
+        var reqs = fs.readFileSync(path.join(box, 'requests.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+        return { out: r.out, code: r.code, sent: inBox(box, '.json').map(JSON.parse), reqs: reqs };
+      });
+    };
+    var gp = makePack('win');
+    var g1 = graph(gp, 'ok', 'omar@example.com', ['-From', 'payroll@contoso.com']);
+    assert.ok(/Enter this code:\s+ABCD-EFGH/.test(g1.out) && /Signed in/.test(g1.out), g1.out);
+    var dcReq = g1.reqs[0];
+    assert.strictEqual(dcReq.url, '/organizations/oauth2/v2.0/devicecode');
+    assert.strictEqual(dcReq.form.client_id, '14d82eec-204b-4c2f-b7e8-296a70dab67e');
+    assert.ok(/Mail\.Send/.test(dcReq.form.scope) && /offline_access/.test(dcReq.form.scope));
+    assert.deepStrictEqual(g1.sent.map(function (s) { return s.message.toRecipients[0].emailAddress.address; }), ['ali@example.com', 'ali.h@example.com'], 'throttled once, then sent; Omar refused');
+    var gm = g1.sent[0].message;
+    assert.strictEqual(gm.subject, 'Payslip "October" 2026');
+    assert.strictEqual(gm.body.content, 'Dear Ali,\r\n\r\nPassword: your Iqama number.\r\n\r\nBest regards');
+    assert.strictEqual(gm.attachments[0].name, 'E1.pdf');
+    assert.strictEqual(gm.attachments[0].contentType, 'application/pdf');
+    assert.strictEqual(Buffer.from(gm.attachments[0].contentBytes, 'base64').toString(), '%PDF-1.4 E1');
+    assert.strictEqual(g1.sent[1].message.body.content, 'Dear علي', 'Arabic kept');
+    assert.ok(g1.reqs.some(function (q) { return q.url === '/v1.0/me/sendMail' && q.auth === 'Bearer tok-1'; }));
+    assert.deepStrictEqual(logIds(gp), ['E1', 'E3']);
+    assert.ok(/sent by Microsoft sign-in/.test(fs.readFileSync(path.join(gp, 'delivery-log.csv'), 'utf8')));
+    assert.ok(/ErrorInvalidRecipients/.test(fs.readFileSync(path.join(gp, 'errors.csv'), 'utf8')));
+    var g2 = graph(gp, 'ok', '', ['-From', 'payroll@contoso.com']);
+    assert.deepStrictEqual(g2.sent.map(function (s) { return s.message.toRecipients[0].emailAddress.address; }), ['omar@example.com'], 'rerun sends only the one left');
+    assert.deepStrictEqual(logIds(gp), ['E1', 'E2', 'E3']);
+    var g3 = graph(makePack('win'), 'ok', '', ['-Test', '-From', 'me@hotmail.com']);
+    assert.strictEqual(g3.reqs[0].url, '/consumers/oauth2/v2.0/devicecode', 'Outlook.com signs in as a personal account');
+    assert.strictEqual(g3.sent.length, 1);
+    assert.strictEqual(g3.sent[0].message.toRecipients[0].emailAddress.address, 'me@hotmail.com');
+    assert.ok(/^\[TEST\] /.test(g3.sent[0].message.subject));
+    var g4 = graph(makePack('win'), 'deny', '', ['-From', 'payroll@contoso.com']);
+    assert.ok(g4.code === 1 && /cancelled/.test(g4.out) && g4.sent.length === 0, 'declined sign-in: clear message, nothing sent');
+    var g5 = graph(makePack('win'), 'admin', '', ['-From', 'payroll@contoso.com']);
+    assert.ok(/administrator/.test(g5.out) && g5.sent.length === 0, 'admin approval needed: says so');
   } else console.log('(pwsh not installed: Windows pack not run)');
 
   if (has('bash')) {
     var m = makePack('mac');
     var fake = path.join(m, 'fake-osascript');
-    fs.writeFileSync(fake, '#!/bin/bash\nif [ "$1" = "-e" ]; then echo me@example.com; exit 0; fi\nprintf "%s\\x1f" "$@" >> "$FAKE_LOG"; echo >> "$FAKE_LOG"\n[ -n "$FAIL_FOR" ] && [ "$2" = "$FAIL_FOR" ] && exit 1\nexit 0\n');
+    fs.writeFileSync(fake, '#!/bin/bash\nif [ "$1" = "-e" ]; then case "$2" in *"count of"*) echo 1 ;; *) echo me@example.com ;; esac; exit 0; fi\nprintf "%s\\x1f" "$@" >> "$FAKE_LOG"; echo >> "$FAKE_LOG"\n[ -n "$FAIL_FOR" ] && [ "$2" = "$FAIL_FOR" ] && exit 1\nexit 0\n');
     fs.chmodSync(fake, 0o755);
     var run = function (mode, fail) {
       var logf = path.join(m, 'calls.txt');
@@ -560,6 +625,75 @@ var Delivery = require(path.join(__dirname, '..', 'js', 'delivery.js'));
     assert.strictEqual(r3[0][1], 'me@example.com');
     assert.ok(/^\[TEST\] /.test(r3[0][2]));
     assert.ok(/send-one\.applescript/.test(Delivery.macCommand('send')) === false && /send-all\.sh send/.test(Delivery.macCommand('send')));
+
+    // no Apple Mail (Linux, or a Mac without a Mail account): the address decides, as on Windows
+    var shRun = function (pack, mode, env) {
+      var r = cp.spawnSync('bash', [path.join(pack, 'send-all.sh'), mode], { env: Object.assign({}, process.env, { PAYSLIP_YES: '1', PAYSLIP_DELAY: '0', PAYSLIP_MX: 'none' }, env || {}), encoding: 'utf8' });
+      return { out: r.stdout + r.stderr, code: r.status };
+    };
+    var lp = makePack('mac');
+    assert.ok(/asks your email address/.test(shRun(lp, 'check').out));
+    assert.ok(/Microsoft 365/.test(shRun(lp, 'check', { PAYSLIP_FROM: 'hr@contoso.com', PAYSLIP_MX: 'contoso-com.mail.protection.outlook.com' }).out));
+    assert.ok(/smtp\.gmail\.com:587/.test(shRun(lp, 'check', { PAYSLIP_FROM: 'hr@gmail.com' }).out));
+    assert.ok(/smtp\.zoho\.sa:587/.test(shRun(lp, 'check', { PAYSLIP_FROM: 'hr@acme.sa', PAYSLIP_MX: 'mx.zoho.sa' }).out));
+    var skip = shRun(m, 'check', { PAYSLIP_OSASCRIPT: fake, PAYSLIP_ROUTE: 'auto', PAYSLIP_FROM: 'hr@gmail.com' }).out;
+    assert.ok(/smtp\.gmail\.com/.test(skip) && !/Apple Mail has/.test(skip), '"Send without Apple Mail" skips Mail');
+    assert.ok(/Apple Mail has 1 email account/.test(shRun(m, 'check', { PAYSLIP_OSASCRIPT: fake }).out));
+    var lnoAddr = shRun(lp, 'send');
+    assert.ok(lnoAddr.code === 1 && /type your email address/.test(lnoAddr.out));
+
+    var shSmtp = function (pack, password) {
+      return withServer('fake-smtp.js', ['wrong'], function (port, box) {
+        var r = shRun(pack, 'send', { PAYSLIP_FROM: 'payroll@example.com', PAYSLIP_SERVER: '127.0.0.1:' + port, PAYSLIP_NO_TLS: '1', PAYSLIP_SMTP_PASSWORD: password });
+        return { out: r.out, mails: inBox(box, '.eml') };
+      });
+    };
+    var ls = makePack('mac');
+    var lr = shSmtp(ls, 'wrong');
+    assert.ok(/password was not accepted/.test(lr.out) && /Stopped before trying the others/.test(lr.out) && lr.mails.length === 0, lr.out);
+    lr = shSmtp(ls, 'secret');
+    assert.ok(/Done: 3 sent, 0 failed/.test(lr.out), lr.out);
+    assert.strictEqual(lr.mails.length, 3);
+    assert.ok(/X-Envelope-To: <omar@example\.com>/.test(lr.mails[1]) && /X-Auth-User: payroll@example\.com/.test(lr.mails[1]));
+    assert.ok(/Subject: =\?UTF-8\?B\?/.test(lr.mails[0]) && /Content-Type: text\/plain; charset=utf-8/.test(lr.mails[0]));
+    assert.ok(/filename="E1\.pdf"/.test(lr.mails[0]) && /Content-Type: application\/pdf/.test(lr.mails[0]));
+    var qp = function (mail) { return Buffer.from(mail.split('quoted-printable\r\n\r\n')[1].split('\r\n--')[0].replace(/=\r\n/g, '').replace(/=([0-9A-F]{2})/g, function (x, h) { return '%' + h; }).replace(/%(?![0-9A-F]{2})/g, '%25'), 'latin1').toString('latin1'); };
+    assert.strictEqual(decodeURIComponent(qp(lr.mails[0])), 'Dear Ali,\r\n\r\nPassword: your Iqama number.\r\n\r\nBest regards\r\n');
+    assert.strictEqual(decodeURIComponent(qp(lr.mails[2])), 'Dear علي\r\n', 'Arabic body kept');
+    assert.deepStrictEqual(logIds(ls), ['E1', 'E2', 'E3']);
+    lr = shSmtp(ls, 'secret');
+    assert.ok(/sent already/.test(lr.out) && lr.mails.length === 0, 'rerun sends nothing twice');
+
+    var shGraph = function (pack, mode, failFor, sendMode, env) {
+      return withServer('fake-graph.js', [mode, failFor || ''], function (port, box) {
+        var base = 'http://127.0.0.1:' + port;
+        var r = shRun(pack, sendMode, Object.assign({ PAYSLIP_FROM: 'payroll@contoso.com', PAYSLIP_MX: 'contoso-com.mail.protection.outlook.com', PAYSLIP_AUTH_BASE: base, PAYSLIP_GRAPH_BASE: base + '/v1.0', PAYSLIP_NO_BROWSER: '1', PAYSLIP_POLL_MS: '10' }, env || {}));
+        var reqs = fs.readFileSync(path.join(box, 'requests.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+        return { out: r.out, code: r.code, sent: inBox(box, '.json').map(JSON.parse), reqs: reqs };
+      });
+    };
+    var lg = makePack('mac');
+    var h1 = shGraph(lg, 'ok', 'omar@example.com', 'send');
+    assert.ok(/Enter this code:\s+ABCD-EFGH/.test(h1.out) && /Signed in/.test(h1.out), h1.out);
+    assert.strictEqual(h1.reqs[0].url, '/organizations/oauth2/v2.0/devicecode');
+    assert.strictEqual(h1.reqs[0].form.client_id, '14d82eec-204b-4c2f-b7e8-296a70dab67e');
+    assert.ok(/Mail\.Send/.test(h1.reqs[0].form.scope));
+    assert.deepStrictEqual(h1.sent.map(function (x) { return x.message.toRecipients[0].emailAddress.address; }), ['ali@example.com', 'ali.h@example.com']);
+    var hm = h1.sent[0].message;
+    assert.strictEqual(hm.subject, 'Payslip "October" 2026', 'quotes kept in JSON');
+    assert.strictEqual(hm.body.content, 'Dear Ali,\n\nPassword: your Iqama number.\n\nBest regards');
+    assert.strictEqual(hm.attachments[0].name, 'E1.pdf');
+    assert.strictEqual(Buffer.from(hm.attachments[0].contentBytes, 'base64').toString(), '%PDF-1.4 E1');
+    assert.strictEqual(h1.sent[1].message.body.content, 'Dear علي');
+    assert.deepStrictEqual(logIds(lg), ['E1', 'E3']);
+    assert.ok(/sent by Microsoft sign-in/.test(fs.readFileSync(path.join(lg, 'delivery-log.csv'), 'utf8')));
+    var h2 = shGraph(lg, 'ok', '', 'send');
+    assert.deepStrictEqual(h2.sent.map(function (x) { return x.message.toRecipients[0].emailAddress.address; }), ['omar@example.com'], 'rerun sends only the one left');
+    var h3 = shGraph(makePack('mac'), 'ok', '', 'test', { PAYSLIP_FROM: 'me@outlook.com' });
+    assert.strictEqual(h3.reqs[0].url, '/consumers/oauth2/v2.0/devicecode');
+    assert.ok(h3.sent.length === 1 && h3.sent[0].message.toRecipients[0].emailAddress.address === 'me@outlook.com' && /^\[TEST\] /.test(h3.sent[0].message.subject));
+    var h4 = shGraph(makePack('mac'), 'deny', '', 'send');
+    assert.ok(h4.code === 1 && /cancelled/.test(h4.out) && h4.sent.length === 0, h4.out);
   }
 })();
 
