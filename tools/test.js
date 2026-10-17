@@ -197,8 +197,6 @@ assert.strictEqual(Delivery.waLink('966551234567', 'Hi there'), 'https://wa.me/9
 var mm = Delivery.mailMergeCsv([{ slip: sample.slips[0], fileName: 'a.pdf', subject: 'S', body: 'B, "q"' }], sample.settings);
 assert.ok(mm.indexOf('to,name,employee_id,subject,body,attachment') >= 0);
 assert.ok(mm.indexOf('"B, ""q"""') >= 0, 'csv quoting');
-var vba = Delivery.outlookVbaModule(sample.settings);
-assert.ok(vba.indexOf('Sub CreatePayslipDrafts()') >= 0 && vba.indexOf('mail.Attachments.Add') >= 0);
 var regDoc = PDF.createDoc(jsPDF, 'a4');
 PDF.renderRegister(regDoc, { settings: sample.settings, slips: sample.slips });
 assert.ok(regDoc.internal.getNumberOfPages() >= 1);
@@ -434,6 +432,98 @@ var Delivery = require(path.join(__dirname, '..', 'js', 'delivery.js'));
   link.split('?')[1].split('&').forEach(function (kv) { var p = kv.split('='); q[p[0]] = decodeURIComponent(p[1]); });
   assert.strictEqual(q.subject, 'Payslip October 2026 - A&B Co');
   assert.strictEqual(q.body, 'Dear Ali,\n\nPassword: your Iqama number.');
+})();
+
+// "Send all" packs: the Windows (PowerShell + Outlook) and Mac (bash + Apple Mail) scripts, run against
+// stand-ins for Outlook and osascript: sending, a failure, resuming, test mode, drafts, the delivery log.
+(function () {
+  var cp = require('child_process');
+  var os = require('os');
+  var has = function (cmd) { try { cp.execSync('command -v ' + cmd, { stdio: 'ignore' }); return true; } catch (e) { return false; } };
+  var items = [
+    { employeeId: 'E1', name: 'Ali Hassan', email: 'ali@example.com', subject: 'Payslip "October" 2026', body: 'Dear Ali,\n\nPassword: your Iqama number.\n\nBest regards', file: 'E1.pdf', source: 'abc' },
+    { employeeId: 'E2', name: 'Hassan, Omar', email: 'omar@example.com', subject: 'Payslip October 2026', body: 'Dear Omar,\n\nBest regards', file: 'E2.pdf', source: 'abc' },
+    { employeeId: 'E3', name: 'علي حسن', email: 'ali.h@example.com', subject: 'Payslip October 2026', body: 'Dear علي', file: 'E3.pdf', source: 'abc' }
+  ];
+  var info = { company: "O'Neil & Sons", period: 'October 2026', sender: '', count: 3 };
+  function makePack(kind) {
+    var dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pack-'));
+    fs.mkdirSync(path.join(dir, 'pdf'));
+    items.forEach(function (it) { fs.writeFileSync(path.join(dir, 'pdf', it.file), '%PDF-1.4 ' + it.employeeId); });
+    if (kind === 'win') {
+      fs.writeFileSync(path.join(dir, 'send-all.ps1'), Delivery.windowsSendScript(info));
+      fs.writeFileSync(path.join(dir, 'send-list.csv'), Delivery.sendListCsv(items));
+    } else {
+      fs.writeFileSync(path.join(dir, 'send-all.sh'), Delivery.macSendScript(info));
+      fs.writeFileSync(path.join(dir, 'send-one.applescript'), Delivery.macSendOneAppleScript());
+      fs.writeFileSync(path.join(dir, 'send-list.tsv'), Delivery.sendListTsv(items));
+    }
+    return dir;
+  }
+  function logIds(dir) {
+    return Object.keys(Vault.sentMap(Vault.logFromCsv(fs.readFileSync(path.join(dir, 'delivery-log.csv'), 'utf8')))).sort();
+  }
+  assert.ok(/^@echo off\r\n/.test(Delivery.windowsBat('-Test', 'x')) && Delivery.windowsBat('-Test', 'x').indexOf('send-all.ps1" -Test') > 0);
+
+  if (has('pwsh')) {
+    var ps = function (dir, mode, fail) {
+      cp.execFileSync('pwsh', ['-NoProfile', '-File', path.join(__dirname, 'fake-outlook.ps1'), '-Pack', dir, '-Mode', mode, '-FailFor', fail || ''], { stdio: 'pipe' });
+      return JSON.parse(fs.readFileSync(path.join(dir, 'calls.json'), 'utf8').replace(/^﻿/, ''));
+    };
+    var w = makePack('win');
+    ps(w, 'check');
+    var c1 = ps(w, 'send', 'omar@example.com');
+    assert.deepStrictEqual(c1.filter(function (x) { return x.op === 'send'; }).map(function (x) { return x.to; }), ['ali@example.com', 'ali.h@example.com'], 'Omar failed, the others sent');
+    var first = c1.filter(function (x) { return x.op === 'send'; })[0];
+    assert.strictEqual(first.subject, 'Payslip "October" 2026');
+    assert.ok(/Dear Ali,\r\n\r\nPassword/.test(first.body), 'line breaks kept');
+    assert.ok(/E1\.pdf$/.test(first.files[0]), 'PDF attached');
+    assert.deepStrictEqual(logIds(w), ['E1', 'E3']);
+    assert.ok(/omar@example\.com/.test(fs.readFileSync(path.join(w, 'errors.csv'), 'utf8')));
+    var c2 = ps(w, 'send');
+    assert.deepStrictEqual(c2.filter(function (x) { return x.op === 'send'; }).map(function (x) { return x.to; }), ['omar@example.com'], 'rerun sends only the one left');
+    assert.deepStrictEqual(logIds(w), ['E1', 'E2', 'E3']);
+    assert.ok(Vault.logFromCsv(fs.readFileSync(path.join(w, 'delivery-log.csv'), 'utf8')).some(function (e) { return e.name === 'علي حسن' && e.name !== '' ; }), 'Arabic name kept in the log');
+    var c3 = ps(w, 'test');
+    var t = c3.filter(function (x) { return x.op === 'send'; });
+    assert.strictEqual(t.length, 1);
+    assert.strictEqual(t[0].to, 'payroll@example.com');
+    assert.ok(/^\[TEST\] /.test(t[0].subject));
+    assert.deepStrictEqual(logIds(w), ['E1', 'E2', 'E3'], 'test mode logs nothing');
+    var d = makePack('win');
+    var cd = ps(d, 'drafts');
+    assert.strictEqual(cd.filter(function (x) { return x.op === 'save'; }).length, 3);
+    assert.ok(!fs.existsSync(path.join(d, 'delivery-log.csv')), 'drafts are not ticked as sent');
+  } else console.log('(pwsh not installed: Windows pack not run)');
+
+  if (has('bash')) {
+    var m = makePack('mac');
+    var fake = path.join(m, 'fake-osascript');
+    fs.writeFileSync(fake, '#!/bin/bash\nif [ "$1" = "-e" ]; then echo me@example.com; exit 0; fi\nprintf "%s\\x1f" "$@" >> "$FAKE_LOG"; echo >> "$FAKE_LOG"\n[ -n "$FAIL_FOR" ] && [ "$2" = "$FAIL_FOR" ] && exit 1\nexit 0\n');
+    fs.chmodSync(fake, 0o755);
+    var run = function (mode, fail) {
+      var logf = path.join(m, 'calls.txt');
+      if (fs.existsSync(logf)) fs.unlinkSync(logf);
+      cp.execFileSync('bash', [path.join(m, 'send-all.sh'), mode], { env: Object.assign({}, process.env, { PAYSLIP_OSASCRIPT: fake, PAYSLIP_YES: '1', PAYSLIP_DELAY: '0', FAKE_LOG: logf, FAIL_FOR: fail || '' }), stdio: 'pipe' });
+      return fs.existsSync(logf) ? fs.readFileSync(logf, 'utf8').trim().split('\n').map(function (l) { return l.split('\x1f'); }) : [];
+    };
+    var r1 = run('send', 'omar@example.com');
+    assert.deepStrictEqual(r1.map(function (a) { return a[1]; }), ['ali@example.com', 'omar@example.com', 'ali.h@example.com'], 'all three tried');
+    assert.strictEqual(r1[0][0], 'send-one.applescript');
+    assert.strictEqual(r1[0][3], 'Dear Ali,\\n\\nPassword: your Iqama number.\\n\\nBest regards', 'line breaks travel as \\n');
+    assert.ok(/\/pdf\/E1\.pdf$/.test(r1[0][4]));
+    assert.deepStrictEqual(logIds(m), ['E1', 'E3']);
+    var r2 = run('send');
+    assert.deepStrictEqual(r2.map(function (a) { return a[1]; }), ['omar@example.com'], 'rerun sends only the one left');
+    assert.deepStrictEqual(logIds(m), ['E1', 'E2', 'E3']);
+    var logText = fs.readFileSync(path.join(m, 'delivery-log.csv'), 'utf8');
+    assert.ok(logText.indexOf('"Hassan, Omar"') > 0 && logText.indexOf('علي حسن') > 0, 'names with commas and Arabic kept');
+    var r3 = run('test');
+    assert.strictEqual(r3.length, 1);
+    assert.strictEqual(r3[0][1], 'me@example.com');
+    assert.ok(/^\[TEST\] /.test(r3[0][2]));
+    assert.ok(/send-one\.applescript/.test(Delivery.macCommand('send')) === false && /send-all\.sh send/.test(Delivery.macCommand('send')));
+  }
 })();
 
 // PWA: every file the page loads is in the service worker cache list, and the manifest icons exist.

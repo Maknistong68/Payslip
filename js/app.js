@@ -22,7 +22,6 @@
   var SETTINGS_FILE_VERSION = 3;
   // Fields that change every month; never kept in the company profile.
   var MONTHLY_KEYS = ['payPeriod', 'periodStart', 'periodEnd', 'paymentDate'];
-  var EML_BATCH = 50;
   var Art = window.PayslipArt || { say: function () {}, confetti: function () {}, countUp: function (el, v) { el.textContent = v; }, init: function () {} };
 
   // ---------------------------------------------------------------------------
@@ -374,7 +373,7 @@
 
   function handleFile(file) {
     if (/\.json$/i.test(file.name)) return loadSettingsFile(file);
-    if (/delivery log.*\.csv$/i.test(file.name) && state.parsed) return restoreLogFile(file);
+    if (/delivery[\s_-]*log.*\.csv$/i.test(file.name) && state.parsed) return restoreLogFile(file);
     readFile(file).then(function (buf) { loadWorkbookData(buf, file.name); })
       .catch(function (e) { setAlert($('loadError'), escapeHtml(e.message), 'error'); });
   }
@@ -1157,7 +1156,7 @@
     share: '<svg viewBox="0 0 24 24"><circle cx="18" cy="5.5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="18.5" r="2.5"/><path d="m8.2 13.2 7.6 4.1M15.8 6.7l-7.6 4.1"/></svg>'
   };
 
-  var CHANNEL_NAMES = { whatsapp: 'WhatsApp', outlook: 'email', email: 'email', mailmerge: 'mail merge', manual: 'marked by hand' };
+  var CHANNEL_NAMES = { whatsapp: 'WhatsApp', outlook: 'email', email: 'email', mail: 'email', mailmerge: 'mail merge', manual: 'marked by hand' };
 
   function refreshExportState() {
     var missing = state.parsed ? companyMissing().filter(function (f) { return f.key !== 'crNumber'; }) : [];
@@ -1339,29 +1338,83 @@
     return ' Each file is password protected' + (without ? ' except ' + without + ' without the needed data' : '') + '.';
   }
 
-  async function downloadEmlPack() {
-    var slips = exportableSlips().filter(function (s) { return s.fields.email; });
-    if (!slips.length) { setAlert($('exportMessage'), 'No employee has an email address in the file.', 'warn'); return; }
+  // --- "Send all" packs: one double-click sends every email from the user's own mailbox ---------------
+  var PACKS = {
+    windows: { app: 'classic Outlook', title: 'Send everyone at once with Outlook', folder: 'Send all (Outlook)', os: 'Windows' },
+    mac: { app: 'Apple Mail', title: 'Send everyone at once with Apple Mail', folder: 'Send all (Apple Mail)', os: 'Mac' }
+  };
+
+  function openSendPack(platform) {
+    var pk = PACKS[platform];
+    var all = exportableSlips();
+    var withEmail = all.filter(function (sl) { return sl.fields.email; });
+    var already = withEmail.filter(isSent).length;
+    var noEmail = all.length - withEmail.length;
+    var win = platform === 'windows';
+    var m = Guide.modal({
+      className: 'send-pack',
+      label: pk.title,
+      html: '<h2>' + pk.title + '</h2>' +
+        '<p class="muted">One double-click sends every email from your own ' + (win ? 'Outlook' : 'Mail') + ', with each employee\'s PDF attached' + (lockOn('email') ? ' and locked' : '') + '. It pauses a few seconds between emails and asks you to type YES before it starts.</p>' +
+        '<ul class="sp-facts"><li><b id="spCount"></b> emails in the pack</li>' +
+        (noEmail ? '<li>' + plural(noEmail, 'employee has', 'employees have') + ' no email: send theirs on WhatsApp or print them.</li>' : '') +
+        (already ? '<li><label class="check"><input type="checkbox" id="spIncludeSent"> Also include the ' + plural(already, 'person', 'people') + ' already sent</label></li>' : '') +
+        '<li>Needs <b>' + pk.app + '</b> on ' + pk.os + (win ? ' (not New Outlook or Outlook on the web)' : '') + '.</li></ul>' +
+        '<ol class="sp-steps"><li>Unzip the pack.</li><li>Double-click <b>1 - Send test to me</b> and check the email you receive.</li><li>Double-click <b>2 - Send all</b> and type YES.</li><li>When it is done, load its <b>delivery-log.csv</b> here (More → Restore ticks from a log).</li></ol>' +
+        '<div class="actions"><button type="button" class="btn btn-primary" data-sp="go">Download the pack</button><button type="button" class="btn btn-ghost" data-sp="no">Cancel</button></div>'
+    });
+    var count = function () {
+      var inc = m.el.querySelector('#spIncludeSent');
+      return withEmail.filter(function (sl) { return (inc && inc.checked) || !isSent(sl); });
+    };
+    var upd = function () { m.el.querySelector('#spCount').textContent = count().length; m.el.querySelector('[data-sp="go"]').disabled = !count().length; };
+    upd();
+    if (m.el.querySelector('#spIncludeSent')) m.el.querySelector('#spIncludeSent').addEventListener('change', upd);
+    m.el.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-sp]');
+      if (!b || b.disabled) return;
+      var slips = count();
+      m.close();
+      if (b.getAttribute('data-sp') === 'go') downloadSendPack(platform, slips);
+    });
+  }
+
+  async function downloadSendPack(platform, slips) {
+    var pk = PACKS[platform];
+    var locked = lockOn('email');
     beginExport();
     try {
-      var items = await buildAll(slips, lockOn('email'));
-      var zip = new JSZip();
-      var root = zip.folder(baseName() + ' - Outlook drafts');
-      items.forEach(function (it, i) {
-        var m = messageFor(it.slip, 'email');
-        var eml = Delivery.buildEml({ from: state.company.senderEmail, to: it.slip.fields.email, subject: m.subject, text: m.text, fileName: it.fileName, pdfBytes: it.art.bytes });
-        root.folder('batch-' + ('0' + (Math.floor(i / EML_BATCH) + 1)).slice(-2)).file(it.fileName.replace(/\.pdf$/, '.eml'), eml);
+      var built = await buildAll(slips, locked);
+      var items = built.map(function (it) {
+        var msg = messageFor(it.slip, 'email');
+        return { employeeId: it.slip.employeeId, name: it.slip.name, email: it.slip.fields.email, subject: msg.subject, body: msg.text, file: it.fileName, source: (state.sourceHash || '').slice(0, 12) };
       });
+      var info = { company: state.company.companyName || '', period: state.company.payPeriod || '', sender: state.company.senderEmail || '', count: items.length, locked: locked };
+      var zip = new JSZip();
+      var root = zip.folder(baseName() + ' - ' + pk.folder);
       var pdfs = root.folder('pdf');
-      items.forEach(function (it) { pdfs.file(it.fileName, it.art.bytes); });
-      pdfs.file('manifest.csv', Delivery.manifestCsv(items, state.company));
-      pdfs.file('OutlookDrafts.bas', Delivery.outlookVbaModule(state.company));
-      root.file('READ ME - how to send.html', Delivery.outlookGuideHtml(state.company, EML_BATCH));
+      built.forEach(function (it) { pdfs.file(it.fileName, it.art.bytes); });
+      root.file('READ ME - how to send.html', Delivery.sendPackGuideHtml(info, platform));
+      if (platform === 'windows') {
+        root.file('1 - Send test to me.bat', Delivery.windowsBat('-Test', 'Payslips - test email'));
+        root.file('2 - Send all.bat', Delivery.windowsBat('', 'Payslips - send all'));
+        root.file('Save as drafts instead.bat', Delivery.windowsBat('-Drafts', 'Payslips - save as drafts'));
+        root.file('Check the pack.bat', Delivery.windowsBat('-Check', 'Payslips - check'));
+        root.file('send-all.ps1', Delivery.windowsSendScript(info));
+        root.file('send-list.csv', Delivery.sendListCsv(items));
+      } else {
+        var exe = { unixPermissions: '755' };
+        root.file('1 - Send test to me.command', Delivery.macCommand('test'), exe);
+        root.file('2 - Send all.command', Delivery.macCommand('send'), exe);
+        root.file('send-all.sh', Delivery.macSendScript(info), exe);
+        root.file('send-one.applescript', Delivery.macSendOneAppleScript());
+        root.file('send-list.tsv', Delivery.sendListTsv(items));
+      }
       setProgress(1, 1, 'Packing ZIP…');
       await nextTick();
-      var blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
-      downloadBlob(blob, baseName() + ' - Outlook drafts.zip');
-      doneMessage('<strong>Done.</strong> ' + plural(items.length, 'draft') + ' in ' + Math.ceil(items.length / EML_BATCH) + ' batch folder(s), plus the PDFs, manifest and macro. Open "READ ME - how to send.html" first.');
+      var blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 1 }, platform: platform === 'mac' ? 'UNIX' : 'DOS' });
+      downloadBlob(blob, baseName() + ' - ' + pk.folder + '.zip');
+      doneMessage('<strong>Pack ready</strong> for ' + plural(items.length, 'email') + '. Unzip it, double-click <b>1 - Send test to me</b>, then <b>2 - Send all</b>. When it is done, load its <b>delivery-log.csv</b> under More → Restore ticks from a log.');
     } catch (e) {
       reportError($('exportMessage'), e);
     } finally {
@@ -1410,7 +1463,8 @@
   $('btnExportPdf').addEventListener('click', exportCombinedPdf);
   $('btnExportZip').addEventListener('click', exportZip);
   $('btnExportFolder').addEventListener('click', exportFolder);
-  $('btnEmlPack').addEventListener('click', downloadEmlPack);
+  $('btnPackWin').addEventListener('click', function () { openSendPack('windows'); });
+  $('btnPackMac').addEventListener('click', function () { openSendPack('mac'); });
   $('btnMergePack').addEventListener('click', downloadMergePack);
   $('btnRegister').addEventListener('click', downloadRegister);
   if (!fsaSupported) $('btnExportFolder').classList.add('hidden');

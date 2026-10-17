@@ -951,3 +951,10 @@ button.offline-badge:hover { transform: translateY(-1px); }
 @keyframes ehRing { from { transform: scale(1); opacity: 0.9; } to { transform: scale(1.8); opacity: 0; } }
 @keyframes ehCursor { from { transform: translate(300px, 92px); opacity: 0; } 30% { opacity: 1; } to { transform: translate(230px, 192px); opacity: 1; } }
 @media (max-width: 720px) { .eh-grid { grid-template-columns: 1fr; } }
+
+/* "Send all" packs */
+.send-all-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.send-pack { width: min(100%, 560px); }
+.sp-facts { margin: 14px 0 10px; padding-left: 20px; display: grid; gap: 4px; font-size: 0.92rem; }
+.sp-facts .check { display: inline-flex; gap: 8px; align-items: center; }
+.sp-steps { margin: 6px 0 18px; padding: 12px 14px 12px 32px; border-radius: 12px; background: var(--info-bg); display: grid; gap: 4px; font-size: 0.9rem; }

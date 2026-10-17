@@ -277,6 +277,10 @@
           <div class="send-facts" id="sendFacts"></div>
           <div class="outlook-line muted small" id="outlookLine"></div>
           <button type="button" class="btn btn-primary btn-xl" id="btnStartSending">Start</button>
+          <div class="send-all-line"><span class="muted small">Or send every email at once:</span>
+            <button type="button" class="btn btn-small" id="btnPackWin" data-needs-ready>Windows · Outlook</button>
+            <button type="button" class="btn btn-small" id="btnPackMac" data-needs-ready>Mac · Apple Mail</button>
+          </div>
         </div>
         <div class="lock-card spot" id="lockCard">
           <div class="lock-title"><svg viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg> Password on the PDF</div>
@@ -339,7 +343,6 @@
             <button type="button" class="more-btn" id="btnExportZip" data-needs-ready><b>All PDFs as a ZIP</b><span>Same files, zipped</span></button>
             <button type="button" class="more-btn" id="btnExportPdf" data-needs-ready><b>One PDF to print</b><span>All payslips, no password</span></button>
             <button type="button" class="more-btn" id="btnRegister" data-needs-ready><b>Signature register</b><span>For payslips handed out on paper</span></button>
-            <button type="button" class="more-btn" id="btnEmlPack" data-needs-ready><b>All Outlook emails (ZIP)</b><span>Batches of 50 with a macro for Drafts</span></button>
             <button type="button" class="more-btn" id="btnMergePack" data-needs-ready><b>Gmail / any mailbox</b><span>Thunderbird Mail Merge pack</span></button>
           </div>
           <label class="check"><input type="checkbox" id="skipErrors" checked> Skip rows with errors (recommended)</label>

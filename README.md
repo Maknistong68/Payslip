@@ -72,9 +72,17 @@ The steps:
    - **Password on the PDF**, one switch per channel: WhatsApp on (recommended), email off, downloads on; the
      password is the Iqama / National ID number by default (or Iqama + birth day and month, date of birth, or a
      password column). The message includes the password hint only when that channel's PDF is locked.
-   - **More**: all PDFs to a folder or a ZIP, one PDF to print, the signature register, all Outlook emails as a
-     ZIP (batches of 50 + macro), the Thunderbird Mail Merge pack for Gmail or any mailbox, the delivery log
-     CSV, restore ticks from a log, clear ticks.
+   - **Send every email at once** (hands-free, from the user's own mailbox): *Windows · Outlook* or
+     *Mac · Apple Mail* downloads a pack. Unzip, double-click **1 - Send test to me** (the first employee's email
+     goes to yourself), then **2 - Send all**: it shows the count and the first recipient, waits for **YES**,
+     sends one email every 2.5 seconds (Microsoft 365 allows about 30 a minute), lists each one, and writes
+     `delivery-log.csv` as it goes. Ctrl+C stops it; running it again skips everyone already sent. Loading the
+     log under *More → Restore ticks from a log* ticks everyone. People already ticked are left out unless
+     chosen. Windows also has *Save as drafts instead* and *Check the pack*; it needs classic Outlook (PowerShell,
+     no macros or installs). The Mac pack uses Apple Mail through AppleScript (allow "control Mail" once; open
+     the `.command` file with right-click → Open the first time).
+   - **More**: all PDFs to a folder or a ZIP, one PDF to print, the signature register, the Thunderbird Mail
+     Merge pack for Gmail or any mailbox, the delivery log CSV, restore ticks from a log, clear ticks.
    Rows are ticked as you send; the ticks survive reloads and export as a delivery log CSV with file hashes.
 
 ### First visit and never losing work
@@ -179,7 +187,7 @@ css/fonts/        Sora display font (SIL Open Font License)
 js/vendor/        SheetJS, jsPDF, JSZip, ExcelJS (MIT) (bundled so the page works offline)
 samples/          template, sample workbook, sample PDFs
 tools/            build-samples.js (regenerates samples/), build-icons.js (regenerates icons/), test.js (smoke tests),
-                  scenarios.js (the 20 workbook cases)
+                  scenarios.js (the 20 workbook cases), fake-outlook.ps1 (runs the Windows pack in the tests)
 ```
 
 ## Development
@@ -203,6 +211,9 @@ No build step; edit the files and reload the page.
   and the PDF (already downloaded) is dragged in by hand. On phones the share sheet sends it in one step.
 - The viewer shows the PDF with the browser's built-in PDF viewer; some phone browsers show an
   "Open in a new tab" link instead.
+- The send-all packs are scripts: a company that blocks PowerShell scripts (Windows) or unsigned scripts
+  (Mac) stops them; the per-person buttons still work. The Windows script is tested with PowerShell against a
+  stand-in for Outlook, and the Mac script with a stand-in for Apple Mail (`tools/test.js`).
 - The `.eml` drafts open as editable drafts only in classic Outlook for Windows (build 2109 or newer).
   New Outlook, Outlook for Mac, Apple Mail and web mail open them read-only.
 - PDF passwords use the 40-bit RC4 standard security handler built into jsPDF: it stops casual opening and
