@@ -29,7 +29,10 @@ The page is a five-step wizard:
    employee named `EMP-001_2026-10_Name.pdf` plus a `manifest.csv`; each file is password protected using
    the *Password Rule* (default: the Iqama / National ID number). A combined PDF for printing or
    the archive is also available.
-5. **Send** – hand each payslip to its employee with the tools you already have. Nothing is sent by the page:
+5. **Send** – Outlook is the default (and for now the only visible) channel: press **Next draft** or the Enter
+   key, classic Outlook opens a ready email with the locked PDF attached, you press Send. The other channels
+   below are still built in but hidden; open the page with `?channels=all` to show them again
+   (`?channels=outlook` hides them). Nothing is sent by the page itself:
    - **WhatsApp**: one button per employee opens the chat with the message typed; on an HTTPS page in
      Chrome/Edge/Safari a *Share PDF* button hands the file itself to WhatsApp through the system share sheet.
    - **Outlook (Windows)**: one `.eml` per employee that classic Outlook opens as a ready draft with the PDF
@@ -76,6 +79,8 @@ js/pdf.js         the three PDF designs, display options, PDF passwords, acknowl
 js/delivery.js    .eml drafts, mail-merge CSV, WhatsApp/Gmail links, Outlook macro and guides
 js/fonts/         Amiri Regular/Bold as base64 for Arabic text, plus its OFL licence
 js/app.js         the five-step UI, settings file, preview, export and send
+js/art.js         logo, the mascot "Qasi" and its moods, confetti, count-up numbers, card spotlight
+css/fonts/        Sora display font (SIL Open Font License)
 js/vendor/        SheetJS, jsPDF, JSZip (bundled so the page works offline)
 samples/          template, sample workbook, sample PDFs
 tools/            build-samples.js (regenerates samples/) and test.js (smoke tests)
@@ -107,3 +112,9 @@ No build step; edit the files and reload the page.
   labels and the amount in words stay in English.
 - A ZIP of 1,000 Arabic payslips takes around 1–2 minutes because each file carries its own font subset.
 - Pictures in formats the browser cannot decode (EMF/WMF) are ignored; use PNG or JPG in the Excel file.
+
+## Look and feel
+
+The theme is driven by four colour variables at the top of `css/styles.css` (`--c1` to `--c4`): the moving
+aurora background, buttons, logo accents and the mascot follow them. Animations respect the operating system's
+"reduce motion" setting. Ideas for what to build next are in `docs/IDEAS.md`.
