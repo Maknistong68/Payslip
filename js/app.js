@@ -19,7 +19,9 @@
   var jsPDF = jspdf.jsPDF;
   var STORAGE_KEY = 'payslip-generator-profile-v2';
   var LOG_KEY_PREFIX = 'payslip-generator-log-';
-  var SETTINGS_FILE_VERSION = 2;
+  var SETTINGS_FILE_VERSION = 3;
+  // Fields that change every month; never kept in the company profile.
+  var MONTHLY_KEYS = ['payPeriod', 'periodStart', 'periodEnd', 'paymentDate'];
   var EML_BATCH = 50;
   var Art = window.PayslipArt || { say: function () {}, confetti: function () {}, countUp: function (el, v) { el.textContent = v; }, init: function () {} };
 
@@ -38,6 +40,9 @@
       columnOverrides: {},
       lock: { whatsapp: true, email: false, download: true },
       channel: 'outlook',
+      locked: false,      // true once the company profile is set up: design and details stay fixed
+      version: 0,
+      lastPeriod: '',
       savedAt: null
     };
   }
@@ -61,6 +66,8 @@
     parseOptions: { sheet: 'auto', headerRow: null, includeHidden: false },
     bankTotal: '',
     sent: {},           // employeeId -> the delivery journal entry that counts (see PayslipVault.sentMap)
+    editing: null,      // { snapshot, returnStep } while the company profile is being edited
+    monthly: {},        // this month's pay period and dates (not part of the profile)
     logKey: '',
     sourceHash: '',     // SHA-256 of the loaded Excel file (or pasted text)
     isSample: false,
@@ -128,6 +135,17 @@
     if (p.company && typeof p.company === 'object') base.company = upgradeMessageText(p.company);
     if (p.columnOverrides && typeof p.columnOverrides === 'object') base.columnOverrides = p.columnOverrides;
     if (p.lock && typeof p.lock === 'object') ['whatsapp', 'email', 'download'].forEach(function (k) { if (typeof p.lock[k] === 'boolean') base.lock[k] = p.lock[k]; });
+    // the pay period and dates belong to a month, not to the profile
+    base.lastPeriod = p.lastPeriod || base.company.payPeriod || '';
+    MONTHLY_KEYS.forEach(function (k) { delete base.company[k]; });
+    if (opts.fromFile) {
+      base.locked = true;
+      base.version = p.profileVersion || p.version || 1;
+    } else {
+      // profiles saved before the profile existed as a concept: in use already, so treat them as set up
+      base.locked = typeof p.locked === 'boolean' ? p.locked : !!base.company.companyName;
+      base.version = p.version || (base.locked ? 1 : 0);
+    }
     base.savedAt = p.savedAt || null;
     state.profile = base;
     if (!opts.silent) saveProfile();
@@ -177,7 +195,8 @@
   // ---------------------------------------------------------------------------
   function goStep(n, opts) {
     if (n > 1 && !state.parsed) return;
-    if (n >= 4 && state.step <= 3 && !(opts && opts.force) && shouldOfferSavePoint()) { offerSavePoint(n); return; }
+    // with a company profile the design is fixed: Review goes straight to Send and back
+    if (n === 3 && profileLocked()) n = state.step >= 4 ? 2 : 4;
     var prev = state.step;
     state.step = n;
     document.body.setAttribute('data-step', String(n));
@@ -200,7 +219,7 @@
     window.scrollTo({ top: 0, behavior: 'smooth' });
     if (n === 3) schedulePreview();
     if (n === 4) renderSendPanel();
-    if (n === 1) renderWelcome();
+    if (n === 1) renderStartCards();
     saveSessionState();
   }
 
@@ -211,10 +230,10 @@
     if (n === 2) {
       var errs = state.parsed.issues.filter(function (i) { return i.level === 'error'; }).length;
       if (errs || st.withErrors) Art.say('oops', 'I checked every row. <b>' + (errs ? errs + ' file problem' + (errs === 1 ? '' : 's') : st.withErrors + ' row' + (st.withErrors === 1 ? '' : 's')) + '</b> need a look; the rest are fine.');
-      else if (companyMissing().length) Art.say('look', '<b>' + st.ok + ' payslips</b> look good. Just tell me the company details below.');
+      else if (companyMissing().length) Art.say('look', '<b>' + st.ok + ' payslips</b> look good. ' + (profileLocked() ? 'Just enter the <b>pay period</b>.' : 'Just tell me the company details below.'));
       else Art.say('look', 'All <b>' + st.ok + ' payslips</b> check out. Total net <b>' + Schema.formatMoney(st.totalNet) + ' ' + escapeHtml(state.company.currency || 'SAR') + '</b>.');
     } else if (n === 3) {
-      Art.say('design', 'Pick a look. I remember it for <b>next month</b>.');
+      Art.say('design', state.editing ? 'Change what you need, then <b>Save profile</b> (or Cancel).' : state.isSample ? 'Try any look: sample data is never saved.' : 'Pick a look <b>once</b>. It becomes your company profile.');
     } else if (n === 4) {
       var left = exportableSlips().filter(function (s) { return !isSent(s); }).length;
       Art.say('send', left ? 'Open a payslip with <b>View</b>, check it, then send it on <b>WhatsApp</b> or by <b>email</b>. ' + left + ' to go.' : 'Everyone has their payslip.');
@@ -279,15 +298,26 @@
       downloadBlob(new Blob([workbookToArray(Schema.buildTemplateWorkbook(XLSX, { sampleRows: Schema.sampleRows(25) }))], { type: XLSX_MIME }), 'Sample_Payslips.xlsx');
     });
   }
-  $('btnTemplate').addEventListener('click', downloadEmptyTemplate);
-  $('btnSampleXlsx').addEventListener('click', downloadExampleTemplate);
-  $('btnLoadSample').addEventListener('click', function () {
-    loadWorkbookData(workbookToArray(Schema.buildTemplateWorkbook(XLSX, { sampleRows: Schema.sampleRows(25) })), SAMPLE_NAME);
+  $('panel1').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-action]');
+    if (!b) return;
+    var a = b.getAttribute('data-action');
+    if (a === 'template') downloadEmptyTemplate();
+    else if (a === 'example') downloadExampleTemplate();
+    else if (a === 'sample') loadWorkbookData(workbookToArray(Schema.buildTemplateWorkbook(XLSX, { sampleRows: Schema.sampleRows(25) })), SAMPLE_NAME);
+    else if (a === 'tour') openTour();
+    else if (a === 'mytemplate') downloadMyTemplate();
+    else if (a === 'loadprofile') $('profileInput').click();
+    else if (a === 'profile') openProfilePanel();
   });
-  $('btnTour').addEventListener('click', function () { openTour(); });
+  $('profileInput').addEventListener('change', function (e) {
+    var f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (f) loadSettingsFile(f);
+  });
 
   // Template pre-filled with the company details and the logo/stamp pictures.
-  $('btnMyTemplate').addEventListener('click', function () {
+  function downloadMyTemplate() {
     var name = PDF.safeFileName('Payslip_Template - ' + (state.company.companyName || 'my company')) + '.xlsx';
     downloadTemplate({ settings: state.company, logo: effectiveImage('logo'), stamp: effectiveImage('stamp') }, name, function () {
       var buf = workbookToArray(Schema.buildTemplateWorkbook(XLSX, { settings: state.company }));
@@ -300,7 +330,7 @@
         downloadBlob(new Blob([out], { type: XLSX_MIME }), name);
       });
     });
-  });
+  }
 
   // Paste cells straight from Excel (last resort when the file itself cannot be used).
   function readPasted(text) {
@@ -376,7 +406,10 @@
     state.dirHandle = null;
     state.exportedTo = '';
     $('exportMessage').innerHTML = '';
+    // a new file never inherits a pay period: it comes from the file or is chosen again
+    state.monthly = {};
     if (restore) {
+      if (restore.monthly && typeof restore.monthly === 'object') state.monthly = restore.monthly;
       var po = restore.parseOptions || {};
       state.parseOptions = { sheet: typeof po.sheet === 'string' ? po.sheet : 'auto', headerRow: po.headerRow > 0 ? +po.headerRow : null, includeHidden: !!po.includeHidden, supplements: po.supplements && typeof po.supplements === 'object' ? po.supplements : {} };
       state.bankTotal = restore.bankTotal || '';
@@ -393,6 +426,7 @@
       if (pick[1]) tasks.push(normalizeImage(XlsxImages.toDataUrl(pick[1]), pick[1].mime === 'image/jpeg').then(function (img) { state.excelImages.stamp = img; }, function () {}));
       return Promise.all(tasks).then(function () { renderImages(); invalidate(); scheduleBackupCheck(); });
     }).catch(function () { /* csv / xls / no pictures */ });
+    applyMode();
     goStep(restore ? Math.min(4, Math.max(2, restore.step || 2)) : 2, { force: !!restore });
   }
 
@@ -506,28 +540,51 @@
     return obj;
   }
 
+  // Company details for this file. Before the profile is set up, the Excel Settings sheet fills them in.
+  // Once it is set up, the profile wins (so payslips stay the same every month) and the Excel file only
+  // supplies this month's pay period and dates.
   function mergeCompany() {
     var excel = upgradeMessageText(state.parsed.settings);
     var saved = upgradeMessageText(state.profile.company || {});
+    var fixed = !!state.profile.locked;
     var out = {};
+    var differs = [];
     state.companyFromExcel = {};
     Schema.SETTINGS_FIELDS.forEach(function (f) {
       if (f.type === 'image') return;
       var v = excel[f.key];
       var isDefaultOnly = f.default != null && v === f.default && !state.parsed.settingsFound;
       var fromExcel = v !== '' && v != null && !isDefaultOnly;
-      if (fromExcel) {
+      if (MONTHLY_KEYS.indexOf(f.key) >= 0) {
+        if (fromExcel) { out[f.key] = v; state.companyFromExcel[f.key] = true; }
+        else out[f.key] = state.monthly[f.key] || '';
+        return;
+      }
+      var mine = saved[f.key] != null && saved[f.key] !== '' ? saved[f.key] : null;
+      if (fixed) {
+        out[f.key] = mine != null ? mine : (f.default != null ? f.default : '');
+        if (fromExcel && mine != null && f.key !== 'messageText' && f.key !== 'messageSubject' && String(v).trim().toLowerCase() !== String(mine).trim().toLowerCase()) differs.push(f.label);
+      } else if (fromExcel) {
         out[f.key] = v;
         state.companyFromExcel[f.key] = true;
-      } else if (saved[f.key] != null && saved[f.key] !== '') {
-        out[f.key] = saved[f.key];
       } else {
-        out[f.key] = f.default != null ? f.default : '';
+        out[f.key] = mine != null ? mine : (f.default != null ? f.default : '');
       }
     });
     state.company = out;
-    state.profile.company = Object.assign({}, saved, out);
-    saveProfile();
+    MONTHLY_KEYS.forEach(function (k) { if (out[k]) state.monthly[k] = out[k]; });
+    if (differs.length) {
+      state.parsed.issues.push({ level: 'info', where: 'Settings', code: 'profile-wins', message: 'The Settings sheet in this file differs from your company profile (' + differs.join(', ') + '). The profile is used, so the payslips look the same every month. Change it with Edit profile if needed.' });
+    }
+    if (fixed && (state.excelImages.logo || state.excelImages.stamp)) {
+      // pictures in the file are ignored once the profile is set up
+    }
+    if (!fixed) {
+      var keep = Object.assign({}, saved, out);
+      MONTHLY_KEYS.forEach(function (k) { delete keep[k]; });
+      state.profile.company = keep;
+      saveProfile();
+    }
   }
 
   function companyMissing() {
@@ -535,15 +592,26 @@
   }
 
   function effectiveImage(kind) {
+    if (state.profile.locked) return state.profile[kind] || null;
     return state.excelImages[kind] || state.profile[kind] || null;
   }
 
   function setCompanyValue(k, v) {
     state.company[k] = v;
-    state.profile.company[k] = v;
-    saveProfile();
+    if (MONTHLY_KEYS.indexOf(k) >= 0) {
+      state.monthly[k] = v;
+      if (k === 'payPeriod' && v && state.profile.locked) { state.profile.lastPeriod = v; saveProfile(); }
+      saveSessionState();
+    } else {
+      state.profile.company[k] = v;
+      saveProfile();
+    }
     invalidate();
     if (k === 'companyName' || k === 'payPeriod' || k === 'periodStart') scheduleRekey();
+  }
+
+  function profileLocked() {
+    return !!(state.profile.locked && !state.editing);
   }
 
   // Anything that changes the rendered PDFs clears the per-employee cache.
@@ -573,7 +641,7 @@
       banner = '<strong>No employees were found.</strong> Check the Columns section below.';
     } else if (missing.length) {
       kind = 'warn';
-      banner = '<strong>' + plural(st.ok, 'payslip') + ' ready.</strong> Please fill in the company details below (' + missing.map(function (f) { return f.label; }).join(', ') + ').';
+      banner = '<strong>' + plural(st.ok, 'payslip') + ' ready.</strong> ' + (profileLocked() ? 'Enter the pay period below.' : 'Please fill in the company details below (' + missing.map(function (f) { return f.label; }).join(', ') + ').');
     } else if (st.withErrors) {
       kind = 'warn';
       banner = '<strong>' + plural(st.ok, 'payslip') + ' ready.</strong> ' + plural(st.withErrors, 'row has', 'rows have') + ' errors and will be skipped unless fixed in Excel. Tick "Only rows with problems" in the Employees list to see them.';
@@ -626,26 +694,56 @@
       : '<span class="badge ok">complete</span> <span>' + escapeHtml(state.company.companyName || '') + ' · ' + escapeHtml(state.company.payPeriod || '') + '</span>';
   }
 
+  var MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+  // Likely pay periods: from the sheet or file name, the month after the last one, or the same as last time.
+  function periodSuggestions() {
+    var out = [];
+    var add = function (text, why) { if (text && !out.some(function (o) { return o.text === text; })) out.push({ text: text, why: why }); };
+    var used = state.parsed && state.parsed.sheets.filter(function (sh) { return sh.used && sh.month && sh.month.year; })[0];
+    var m = used ? used.month : Schema.monthInfo(String(state.fileName || '').replace(/\.[a-z0-9]+$/i, ''));
+    if (m && m.year) add(MONTH_NAMES[m.month - 1] + ' ' + m.year, used ? 'from the sheet name' : 'from the file name');
+    var lastText = state.profile.lastPeriod;
+    var last = Schema.monthInfo(lastText);
+    if (last && last.year) {
+      var mo = last.month % 12 + 1;
+      add(MONTH_NAMES[mo - 1] + ' ' + (last.year + (last.month === 12 ? 1 : 0)), 'the month after ' + lastText);
+    }
+    if (lastText) add(lastText, 'same as last time');
+    return out;
+  }
+
   function renderCompanyForm() {
     var missing = companyMissing();
-    var fromExcelCount = Object.keys(state.companyFromExcel).length;
+    var fixed = profileLocked();
+    var c = state.company;
     $('companyMeta').innerHTML = companyMetaHtml();
-    $('companySource').textContent = state.parsed.settingsFound
-      ? 'Filled from the Settings sheet of the file' + (fromExcelCount < 3 ? ' (partly)' : '') + '. You can correct anything here; edits are kept for next time.'
-      : 'This file has no Settings sheet. Enter the details here once; they are saved on this computer and in your settings file.';
-    $('secCompany').open = missing.length > 0;
+    $('secCompany').querySelector('.sec-title').textContent = fixed ? 'Pay period' : 'Company details';
+    if (fixed) {
+      $('companySource').innerHTML = 'Company details, design and message come from your company profile (<b>' + escapeHtml(c.companyName) + '</b>' + (c.crNumber ? ', CR ' + escapeHtml(c.crNumber) : '') + '). Only this month\'s dates are entered here. <button type="button" class="link inline" data-profile-edit>Edit profile</button>';
+      $('secCompany').open = true;
+    } else {
+      $('companySource').textContent = state.editing
+        ? 'You are editing the company profile. These details are printed on every payslip.'
+        : (state.parsed.settingsFound ? 'Filled from the Settings sheet of the file. ' : '') + 'Entered once: these details become part of your company profile.';
+      $('secCompany').open = missing.length > 0 || !!state.editing;
+    }
 
     var form = $('companyForm');
     // Delivery-related settings live on the Send step; keep this form about the company.
     var hidden = { messageSubject: 1, messageText: 1, senderEmail: 1 };
-    form.innerHTML = Schema.SETTINGS_FIELDS.filter(function (f) { return f.type !== 'image' && !hidden[f.key]; }).map(function (f) {
-      var v = state.company[f.key] || '';
+    var fields = Schema.SETTINGS_FIELDS.filter(function (f) { return f.type !== 'image' && !hidden[f.key] && (!fixed || MONTHLY_KEYS.indexOf(f.key) >= 0); });
+    var sugs = fixed && !String(c.payPeriod || '').trim() ? periodSuggestions() : [];
+    form.innerHTML = fields.map(function (f) {
+      var v = c[f.key] || '';
       var isMissing = f.required && !String(v).trim();
       return '<label class="' + (f.key === 'footerNote' || f.key === 'address' ? 'wide' : '') + '"><span>' +
         escapeHtml(f.label) + (f.required ? ' <span class="req">*</span>' : '') +
         (state.companyFromExcel[f.key] ? ' <span class="badge neutral" title="Value from the Excel file">Excel</span>' : '') +
         '</span><input type="text" data-key="' + f.key + '" value="' + escapeHtml(v) + '" placeholder="' + escapeHtml(f.example ? 'e.g. ' + f.example : '') + '" class="' + (isMissing ? 'missing' : '') + '"></label>';
-    }).join('');
+    }).join('') + (sugs.length ? '<div class="wide period-hint"><span class="muted small">Which month is this file?</span>' + sugs.map(function (o, k) {
+      return '<button type="button" class="btn btn-small' + (k === 0 ? ' btn-primary' : '') + '" data-use-period="' + escapeHtml(o.text) + '" title="' + escapeHtml(o.why) + '">' + escapeHtml(o.text) + '</button>';
+    }).join('') + '<span class="muted small">' + escapeHtml(sugs[0].why) + '</span></div>' : '');
     Array.prototype.forEach.call(form.querySelectorAll('input'), function (inp) {
       inp.addEventListener('input', function () {
         var k = inp.getAttribute('data-key');
@@ -657,6 +755,15 @@
       });
     });
   }
+
+  $('secCompany').addEventListener('click', function (e) {
+    if (e.target.closest('[data-profile-edit]')) { e.preventDefault(); startEdit(); return; }
+    var use = e.target.closest('[data-use-period]');
+    if (use) {
+      setCompanyValue('payPeriod', use.getAttribute('data-use-period'));
+      renderReview();
+    }
+  });
 
   function renderColumns() {
     var p = state.parsed;
@@ -876,56 +983,44 @@
   // ---- settings file ---------------------------------------------------------
   function settingsFileObject() {
     var p = state.profile;
+    var src = p.company && Object.keys(p.company).length ? p.company : state.company;
+    var company = {};
+    Object.keys(src || {}).forEach(function (k) { if (MONTHLY_KEYS.indexOf(k) < 0) company[k] = src[k]; });
     return {
       app: 'payslip-generator',
+      kind: 'company-profile',
       version: SETTINGS_FILE_VERSION,
+      profileVersion: p.version || 1,
       savedAt: new Date().toISOString(),
-      company: state.company && Object.keys(state.company).length ? state.company : p.company,
+      company: company,
       templateId: p.templateId,
       accent: p.accent,
       paper: p.paper,
       display: p.display,
       lock: p.lock,
-      logo: effectiveImage('logo'),
-      stamp: effectiveImage('stamp'),
+      logo: p.logo || effectiveImage('logo'),
+      stamp: p.stamp || effectiveImage('stamp'),
       columnOverrides: p.columnOverrides
     };
   }
 
-  $('btnSaveSettings').addEventListener('click', function () { saveSettingsFile(); });
-
   function loadSettingsFile(file) {
     return readFile(file, 'text').then(function (text) {
       var obj = JSON.parse(text);
-      if (!obj || obj.app !== 'payslip-generator') throw new Error('This is not a Payslip Generator settings file.');
-      applyProfile(obj);
+      if (!obj || obj.app !== 'payslip-generator') throw new Error('This is not a Payslip Generator company profile.');
+      applyProfile(obj, { fromFile: true });
+      state.editing = null;
       state.excelImages = { logo: null, stamp: null };
-      if (state.parsed) reparse();
       renderDesignControls();
-      updateSavedHint();
+      applyMode();
+      if (state.parsed) reparse();
       markBackedUp('loaded');
-      setAlert($('loadError'), 'Settings loaded from ' + escapeHtml(file.name) + (obj.company && obj.company.companyName ? ' (' + escapeHtml(obj.company.companyName) + ')' : '') + '.' + (state.parsed ? '' : ' Now upload the Excel file.'), 'ok');
+      setAlert($('loadError'), 'Company profile loaded: <b>' + escapeHtml((obj.company && obj.company.companyName) || file.name) + '</b>.' + (state.parsed ? '' : ' Now drop this month\'s Excel file.'), 'ok');
       invalidate();
     }).catch(function (e) {
-      setAlert($('loadError'), 'Could not load settings: ' + escapeHtml(e.message), 'error');
+      setAlert($('loadError'), 'Could not load the profile: ' + escapeHtml(e.message), 'error');
       goStep(1);
     });
-  }
-
-  ['settingsInput', 'settingsInput2'].forEach(function (id) {
-    $(id).addEventListener('change', function (e) {
-      var f = e.target.files && e.target.files[0];
-      e.target.value = '';
-      if (f) loadSettingsFile(f);
-    });
-  });
-
-  function updateSavedHint() {
-    var c = state.profile.company || {};
-    var hasSomething = c.companyName || state.profile.logo || Object.keys(state.profile.columnOverrides).length;
-    $('savedHint').textContent = hasSomething
-      ? 'This computer already remembers ' + (c.companyName ? '"' + c.companyName + '"' : 'your settings') + (state.profile.logo ? ' and the logo' : '') + '. They are applied automatically.'
-      : '';
   }
 
   // ---------------------------------------------------------------------------
@@ -1072,7 +1167,7 @@
     var el = $('exportState');
     if (!state.parsed) { el.innerHTML = ''; return; }
     if (missing.length) {
-      setAlert(el, 'Fill in ' + missing.map(function (f) { return '<strong>' + f.label + '</strong>'; }).join(' and ') + ' first (Review → Company details). You can already look at the payslips.' +
+      setAlert(el, 'Fill in ' + missing.map(function (f) { return '<strong>' + f.label + '</strong>'; }).join(' and ') + ' first (on the Review step). You can already look at the payslips.' +
         '<div class="alert-actions"><button type="button" class="btn btn-small" data-go="2">Go to Review</button></div>', 'warn');
       el.querySelector('[data-go]').addEventListener('click', function () { goStep(2); $('secCompany').open = true; });
     } else if (!slips.length) {
@@ -1553,8 +1648,14 @@
     $('msgSubject').value = state.company.messageSubject || '';
     $('msgFrom').value = state.company.senderEmail || '';
     $('msgText').value = state.company.messageText || '';
+    var fixed = profileLocked();
+    ['msgSubject', 'msgFrom', 'msgText'].forEach(function (id) { $(id).readOnly = fixed; });
+    $('msgFixed').innerHTML = fixed ? 'The message is part of your company profile. <button type="button" class="link inline" data-profile-edit>Edit profile</button>' : '';
     renderMessagePreview();
   }
+  $('panel4').addEventListener('click', function (e) {
+    if (e.target.closest('[data-profile-edit]')) { e.preventDefault(); startEdit(); }
+  });
 
   function refreshSendViews() {
     if (!state.parsed) return;
@@ -1595,9 +1696,11 @@
     $('lockWhatsapp').checked = lockOn('whatsapp');
     $('lockEmail').checked = lockOn('email');
     $('lockDownload').checked = lockOn('download');
-    ['lockWhatsapp', 'lockEmail', 'lockDownload'].forEach(function (id) { $(id).disabled = none; });
+    var fixed = profileLocked();
+    ['lockWhatsapp', 'lockEmail', 'lockDownload'].forEach(function (id) { $(id).disabled = none || fixed; });
     $('passwordRule').value = ['id', 'id+dob', 'dob', 'custom'].indexOf(rule) >= 0 ? rule : 'id';
-    $('passwordRule').disabled = none;
+    $('passwordRule').disabled = none || fixed;
+    $('lockCard').classList.toggle('fixed', fixed);
     var ruleText = { 'id+dob': 'Iqama number or date of birth', id: 'Iqama / National ID number', dob: 'date of birth', custom: 'password column' }[rule] || 'Iqama / National ID number';
     var cannot = exportableSlips().filter(function (s) { return Schema.buildPassword(s, rule).error; }).length;
     var notes = [];
@@ -1607,6 +1710,7 @@
       if (cannot && (lockOn('whatsapp') || lockOn('email') || lockOn('download'))) notes.push(plural(cannot, 'employee has', 'employees have') + ' no ' + ruleText + ' in the file; their PDFs stay open.');
       if (!notes.length) notes.push('Locked messages tell the employee the password.');
     }
+    if (fixed) notes.push('Part of your company profile. <button type="button" class="link inline" data-profile-edit>Edit profile</button>');
     $('lockNote').innerHTML = notes.join(' ');
   }
 
@@ -1838,9 +1942,7 @@
   }
 
   function backupStatus() {
-    var c = state.profile.company || {};
-    var worth = c.companyName || effectiveImage('logo') || Object.keys(state.profile.columnOverrides).length || (state.parsed && !state.isSample);
-    if (state.isSample || !worth) return { state: 'empty' };
+    if (!state.profile.locked) return { state: 'empty' };
     var b = Vault.backup();
     if (!b.hash) return { state: 'never' };
     if (b.hash !== settingsHash()) return { state: 'stale', at: b.at, how: b.how };
@@ -1863,17 +1965,15 @@
 
   function renderBackupChip(bump) {
     var chip = $('backupChip');
+    var p = state.profile;
+    if (!p.locked) { chip.className = 'top-chip backup-chip hidden'; return; }
     var st = backupStatus();
-    chip.className = 'top-chip backup-chip state-' + st.state + (st.state === 'empty' ? ' hidden' : '') + (bump ? ' bump' : '');
-    if (st.state === 'ok') {
-      chip.innerHTML = ICON_SHIELD + '<span class="lbl">' + (st.how === 'auto' ? 'Auto-saved' : 'Backed up') + '</span>';
-      chip.title = 'Settings file saved ' + Vault.timeAgo(st.at) + '. Click to see or save again.';
-    } else {
-      chip.innerHTML = ICON_SAVE + '<span class="lbl">' + (st.state === 'stale' ? 'Save changes' : 'Save settings') + '</span>';
-      chip.title = st.state === 'stale' ? 'You changed settings since the last settings file.' : 'Your setup lives only in this browser. Save a settings file.';
-    }
+    var ok = st.state === 'ok' && !state.editing;
+    chip.className = 'top-chip backup-chip ' + (ok ? 'state-ok' : 'state-stale') + (bump ? ' bump' : '');
+    chip.innerHTML = (ok ? ICON_SHIELD : ICON_SAVE) + '<span class="lbl">' + escapeHtml(state.editing ? 'Editing profile' : (p.company.companyName || 'Company profile')) + '</span>';
+    chip.title = state.editing ? 'Editing the company profile' : ok ? 'Company profile, saved as a file ' + Vault.timeAgo(st.at) + (st.how === 'auto' ? ' (kept up to date)' : '') : 'Company profile: not saved as a file yet. Click to save it.';
     chip.setAttribute('aria-label', chip.title);
-    if (state.step === 1) renderWelcome();
+    if (state.step === 1) renderStartCards();
   }
 
   function settingsJson() {
@@ -1881,7 +1981,7 @@
   }
 
   function settingsFileName() {
-    return PDF.safeFileName('payslip-settings - ' + (state.company.companyName || state.profile.company.companyName || 'my company')) + '.json';
+    return PDF.safeFileName('Company profile - ' + (state.profile.company.companyName || state.company.companyName || 'my company')) + '.json';
   }
 
   function writeSettingsTo(handle) {
@@ -1913,7 +2013,7 @@
     }
     return viaHandle.catch(function () {
       if (typeof window.showSaveFilePicker !== 'function') return download();
-      return window.showSaveFilePicker({ suggestedName: settingsFileName(), id: 'payslip-settings', types: [{ description: 'Payslip settings', accept: { 'application/json': ['.json'] } }] }).then(function (handle) {
+      return window.showSaveFilePicker({ suggestedName: settingsFileName(), id: 'payslip-settings', types: [{ description: 'Company profile', accept: { 'application/json': ['.json'] } }] }).then(function (handle) {
         return writeSettingsTo(handle).then(function () {
           state.settingsHandle = handle;
           Vault.set('settings-handle', handle).catch(function () { /* handle not storable */ });
@@ -1926,66 +2026,206 @@
       if (!how) return false;
       markBackedUp(how);
       Guide.toast({ id: 'savedToast', kind: 'save', icon: '💾', html: how === 'download'
-        ? '<b>Settings file saved</b> to your Downloads. Keep it with your payroll files; next month just load it.'
-        : '<b>Settings file saved.</b> It now updates itself whenever you change something.' });
+        ? '<b>Company profile saved</b> to your Downloads. Keep it with your payroll files; load it on any computer.'
+        : '<b>Company profile saved.</b> The file is kept up to date from now on.' });
       return true;
     });
   }
 
-  $('backupChip').addEventListener('click', function () { openSavePoint(null); });
+  $('backupChip').addEventListener('click', function () { openProfilePanel(); });
 
   // ---------------------------------------------------------------------------
-  // Save point: before exporting, offer to save the setup (once per set of changes)
+  // Company profile: set up once (company details, design, message, passwords, columns), saved as a
+  // file and loaded when needed. Every month then needs only the Excel file and the pay period, so
+  // payslips cannot drift from month to month. Changing it is a deliberate edit with Save or Cancel.
   // ---------------------------------------------------------------------------
-  function shouldOfferSavePoint() {
-    var st = backupStatus().state;
-    return (st === 'never' || st === 'stale') && state.savePointSkipped !== settingsHash();
-  }
+  var ICON_DOC = '<svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg>';
+  var ICON_ID = '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="9" cy="11" r="2.2"/><path d="M5.8 16c.6-1.6 1.8-2.4 3.2-2.4s2.6.8 3.2 2.4M14.5 10h4M14.5 13.5h3"/></svg>';
 
-  function savePointItems() {
-    var c = state.company && Object.keys(state.company).length ? state.company : (state.profile.company || {});
-    var t = PDF.TEMPLATES.filter(function (x) { return x.id === state.profile.templateId; })[0];
-    var hiddenOpts = PDF.DISPLAY_OPTIONS.filter(function (o) { return !state.profile.display[o.key]; }).length;
-    var cols = Object.keys(state.profile.columnOverrides).length;
-    var logo = effectiveImage('logo');
-    return [
-      { label: 'Company', value: [c.companyName, c.crNumber ? 'CR ' + c.crNumber : ''].filter(Boolean).join(' · ') || 'not filled in yet', ok: !!c.companyName },
-      { label: 'Logo', value: logo ? 'included' : 'none yet', ok: !!logo, thumb: logo ? logo.dataUrl : '' },
-      { label: 'Design', value: (t ? t.name : '') + ' · ' + String(state.profile.paper).toUpperCase() + (hiddenOpts ? ' · ' + plural(hiddenOpts, 'item') + ' hidden' : ''), ok: true },
-      { label: 'Column choices', value: cols ? plural(cols, 'column') + ' remembered' : 'none needed', ok: cols > 0 },
-      { label: 'Email message', value: c.messageText && c.messageText !== currentDefault('messageText') ? 'your own text' : 'standard text', ok: true }
-    ];
-  }
-
-  function openSavePoint(target) {
-    var st = backupStatus();
-    var fsa = typeof window.showSaveFilePicker === 'function';
-    return Guide.savePoint({
-      title: st.state === 'ok' ? 'Your setup is backed up' : target ? (st.state === 'stale' ? 'You changed a few things. Save them first?' : 'Save point! Keep your setup safe') : 'Save your setup',
-      text: st.state === 'ok'
-        ? 'Saved ' + escapeHtml(Vault.timeAgo(st.at)) + (st.how === 'auto' ? ' and kept up to date automatically' : '') + '. Save again any time.'
-        : 'Right now your company details, logo and design live only in this browser. Clearing it or switching computers would lose them. One small file keeps it all for next month.',
-      items: savePointItems(),
-      saveLabel: st.state === 'ok' ? 'Save again' : 'Save settings file',
-      skipLabel: target ? 'Continue without saving' : 'Not now',
-      note: fsa ? 'Pick a place once, for example your payroll folder. After that the file updates itself.' : 'The file goes to your Downloads folder. Move it next to your payroll files.',
-      onSave: saveSettingsFile
-    }).then(function (r) {
-      if (!target) return;
-      if (r === 'skip') state.savePointSkipped = settingsHash();
-      if (r === 'skip' || r === 'saved') goStep(target, { force: true });
+  function applyMode() {
+    var fixed = profileLocked();
+    var steps = fixed ? [1, 2, 4] : [1, 2, 3, 4];
+    Array.prototype.forEach.call($('stepper').children, function (li) {
+      var k = steps.indexOf(+li.getAttribute('data-step'));
+      li.classList.toggle('hidden', k < 0);
+      if (k >= 0) li.querySelector('.dot').textContent = k + 1;
     });
+    $('panel2').querySelector('.panel-nav [data-go="3"]').textContent = fixed ? 'Continue to send →' : 'Continue to design →';
+    $('btnDesignNext').textContent = state.editing ? 'Save profile' : state.isSample ? 'Continue to send →' : 'Save company profile & continue →';
+    $('designSub').textContent = state.editing ? 'Editing the company profile: changes apply to every payslip from now on.'
+      : state.isSample ? 'Sample data: try any design. Nothing is saved as your profile.'
+      : 'Set once: this becomes your company profile, so every payslip looks the same each month.';
+    $('editBar').classList.toggle('hidden', !state.editing);
+    document.body.classList.toggle('editing', !!state.editing);
+    renderBackupChip();
+    renderStartCards();
   }
 
-  function offerSavePoint(target) {
-    openSavePoint(target);
+  function renderStartCards() {
+    var p = state.profile;
+    var c = p.company || {};
+    var A = $('startCardA');
+    var B = $('startCardB');
+    if (p.locked) {
+      var t = PDF.TEMPLATES.filter(function (x) { return x.id === p.templateId; })[0];
+      var b = backupStatus();
+      A.innerHTML = '<span class="sc-icon">' + ICON_DOC + '</span><h3>Your Excel template</h3><p class="muted">Already filled in with ' + escapeHtml(c.companyName) + '\'s details and logo. One row per employee.</p>' +
+        '<div class="actions"><button type="button" class="btn btn-primary" data-action="mytemplate">Download my template</button><button type="button" class="btn" data-action="template">Blank template</button></div>' +
+        '<button type="button" class="link" data-action="tour">▶ How it works</button>';
+      B.innerHTML = '<span class="sc-icon">' + ICON_ID + '</span><h3>Company profile <span class="badge ok">set up</span></h3>' +
+        '<p class="muted"><b>' + escapeHtml(c.companyName) + '</b> · ' + escapeHtml(t ? t.name : '') + ' design · version ' + (p.version || 1) + '</p>' +
+        '<p class="small ' + (b.state === 'ok' ? 'muted' : 'warn-text') + '">' + (b.state === 'ok' ? 'Saved as a file ' + escapeHtml(Vault.timeAgo(b.at)) + '.' : 'Not saved as a file yet: save it so it is never lost.') + '</p>' +
+        '<div class="actions"><button type="button" class="btn" data-action="profile">View profile</button><button type="button" class="btn btn-ghost" data-action="loadprofile">Load another</button></div>';
+    } else {
+      A.innerHTML = '<span class="sc-icon">' + ICON_DOC + '</span><h3>First time?</h3><p class="muted">Fill the template: company details once, one row per employee.</p>' +
+        '<div class="actions"><button type="button" class="btn btn-primary" data-action="template">Download template</button><button type="button" class="btn" data-action="example">Filled example</button></div>' +
+        '<button type="button" class="link" data-action="sample">Try with sample data <span class="arrow">→</span></button><button type="button" class="link guide-link" data-action="tour">▶ How it works</button>';
+      B.innerHTML = '<span class="sc-icon">' + ICON_ID + '</span><h3>Have a company profile?</h3><p class="muted">Load it once. Every month then uses the same company details and design.</p>' +
+        '<div class="actions"><button type="button" class="btn" data-action="loadprofile">Load company profile</button></div>' +
+        '<p class="muted small">No profile yet? Drop your Excel file: the first run sets it up.</p>';
+    }
+  }
+
+  function profileMissing() {
+    return Schema.SETTINGS_FIELDS.filter(function (f) { return f.key === 'companyName' && !String(state.profile.company[f.key] || state.company[f.key] || '').trim(); });
+  }
+
+  $('btnDesignNext').addEventListener('click', function () {
+    if (state.editing) { saveEdit(); return; }
+    if (state.isSample || profileLocked()) { goStep(4); return; }
+    var missing = profileMissing();
+    if (missing.length) {
+      Guide.toast({ kind: 'warn', html: 'Fill in <b>' + missing.map(function (f) { return f.label; }).join(', ') + '</b> first (Review → Company details).' });
+      goStep(2);
+      $('secCompany').open = true;
+      return;
+    }
+    var p = state.profile;
+    p.logo = state.excelImages.logo || p.logo;
+    p.stamp = state.excelImages.stamp || p.stamp;
+    p.locked = true;
+    p.version = Math.max(1, p.version || 0);
+    p.lastPeriod = state.company.payPeriod || p.lastPeriod;
+    saveProfile();
+    // straight from the click, so the browser's Save dialog is allowed to open
+    saveSettingsFile().then(function (ok) {
+      if (!ok) Guide.toast({ id: 'notSaved', kind: 'warn', timeout: 0, html: '<b>The profile is kept in this browser only.</b> Save it as a file from the profile button at the top right so it is never lost.' });
+    });
+    applyMode();
+    reparse();
+    goStep(4);
+  });
+
+  function startEdit() {
+    if (!state.parsed) {
+      Guide.toast({ kind: 'info', html: 'Drop this month\'s Excel file first: the profile is edited with a live preview of a real payslip.' });
+      return;
+    }
+    if (state.editing) { goStep(3); return; }
+    state.editing = { snapshot: JSON.stringify(state.profile), returnStep: state.step === 3 ? 2 : state.step };
+    applyMode();
+    reparse();
+    renderDesignControls();
+    goStep(3);
+  }
+
+  function profileJson(p) {
+    var copy = JSON.parse(JSON.stringify(p));
+    delete copy.savedAt;
+    delete copy.lastPeriod;
+    return JSON.stringify(copy);
+  }
+
+  function saveEdit() {
+    if (!state.editing) return;
+    if (profileMissing().length) { Guide.toast({ kind: 'warn', html: 'The company name cannot be empty.' }); return; }
+    var changed = profileJson(JSON.parse(state.editing.snapshot)) !== profileJson(state.profile);
+    var back = state.editing.returnStep || 2;
+    if (changed) state.profile.version = (state.profile.version || 1) + 1;
+    state.editing = null;
+    saveProfile();
+    if (changed) saveSettingsFile();
+    applyMode();
+    reparse();
+    if (!changed) Guide.toast({ kind: 'info', html: 'No changes; the profile stays as it was.' });
+    goStep(back);
+  }
+
+  function cancelEdit() {
+    if (!state.editing) return;
+    var back = state.editing.returnStep || 2;
+    state.profile = JSON.parse(state.editing.snapshot);
+    state.editing = null;
+    saveProfile();
+    state.cache = {};
+    renderDesignControls();
+    applyMode();
+    reparse();
+    goStep(back);
+    Guide.toast({ kind: 'info', html: 'Changes cancelled. The profile is exactly as before.' });
+  }
+  $('btnSaveEdit').addEventListener('click', saveEdit);
+  $('btnCancelEdit').addEventListener('click', cancelEdit);
+
+  function removeProfile() {
+    state.profile = defaultProfile();
+    state.editing = null;
+    saveProfile();
+    Vault.setBackup({});
+    state.settingsHandle = null;
+    Vault.del('settings-handle').catch(function () {});
+    renderDesignControls();
+    applyMode();
+    if (state.parsed) reparse();
+    goStep(state.parsed ? 2 : 1);
+  }
+
+  function openProfilePanel() {
+    var p = state.profile;
+    var c = p.company || {};
+    var b = backupStatus();
+    var t = PDF.TEMPLATES.filter(function (x) { return x.id === p.templateId; })[0];
+    var rule = { 'id+dob': 'Iqama + birth day and month', id: 'Iqama / National ID', dob: 'date of birth', custom: 'password column', none: 'none' }[String(c.passwordRule || 'id').toLowerCase()] || 'Iqama / National ID';
+    var row = function (k, v) { return '<div><dt>' + k + '</dt><dd>' + v + '</dd></div>'; };
+    var m = Guide.modal({
+      className: 'profile-panel',
+      label: 'Company profile',
+      html: '<h2>Company profile</h2><p class="muted">Set once and used for every payslip, so they look the same every month. Only the Excel file and the pay period change.</p>' +
+        '<div class="pf-grid"><div class="pf-thumb">' + PDF.thumbSvg(p.templateId, p.accent) + '</div><dl class="pf-list">' +
+        row('Company', escapeHtml(c.companyName || '—') + (c.crNumber ? ' · CR ' + escapeHtml(c.crNumber) : '')) +
+        row('Design', escapeHtml((t ? t.name : '') + ' · ' + String(p.paper).toUpperCase()) + (p.logo ? ' · <img class="pf-logo" src="' + p.logo.dataUrl + '" alt="Logo">' : ' · no logo')) +
+        row('Message', c.messageText && c.messageText !== currentDefault('messageText') ? 'your own text' : 'standard text') +
+        row('Password', 'WhatsApp ' + (lockOn('whatsapp') ? 'locked' : 'open') + ' · email ' + (lockOn('email') ? 'locked' : 'open') + ' · downloads ' + (lockOn('download') ? 'locked' : 'open') + ' (' + rule + ')') +
+        row('Columns', Object.keys(p.columnOverrides).length ? plural(Object.keys(p.columnOverrides).length, 'column choice') + ' remembered' : 'read automatically') +
+        row('Version', (p.version || 1) + ' · ' + (b.state === 'ok' ? 'saved as a file ' + escapeHtml(Vault.timeAgo(b.at)) : '<span class="warn-text">not saved as a file</span>')) +
+        '</dl></div>' +
+        '<div class="actions pf-actions"><button type="button" class="btn btn-primary" data-p="save">Save profile file</button><button type="button" class="btn" data-p="edit">Edit profile</button>' +
+        '<button type="button" class="btn" data-p="load">Load another profile</button><button type="button" class="btn" data-p="mytemplate">Download my Excel template</button>' +
+        '<button type="button" class="btn btn-ghost pf-remove" data-p="remove">Remove from this computer</button></div>'
+    });
+    m.el.addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-p]');
+      if (!btn) return;
+      var a = btn.getAttribute('data-p');
+      if (a === 'save') saveSettingsFile().then(function (ok) { if (ok) m.close(); });
+      else if (a === 'edit') { m.close(); startEdit(); }
+      else if (a === 'load') { m.close(); $('profileInput').click(); }
+      else if (a === 'mytemplate') downloadMyTemplate();
+      else if (a === 'remove') {
+        m.close();
+        Guide.confirm({ title: 'Remove the company profile?', danger: true, ok: 'Remove',
+          html: 'The profile is removed from this browser and the next file starts the setup again. Profile files you saved are not touched; load one any time.' }).then(function (yes) { if (yes) removeProfile(); });
+      }
+    });
   }
 
   // ---------------------------------------------------------------------------
   // Session: the open file and where the user was, kept in IndexedDB so a refresh, a crash or a
   // browser restart (even mid-sending) brings everything back exactly as it was.
   // ---------------------------------------------------------------------------
-  var AUTO_RESUME_MS = 12 * 3600 * 1000;
+  // A refresh, crash or restart within three days reopens exactly where the user was (sending can take
+  // a few days); older work is dropped. Ticks are kept separately per company and pay period anyway.
+  var AUTO_RESUME_MS = 3 * 864e5;
 
   function rememberOn() {
     return Vault.prefs().remember !== false;
@@ -1994,7 +2234,6 @@
   function rememberFile(rec) {
     state.sourceRec = rec;
     state.sourceHash = '';
-    state.pendingSession = null;
     Vault.del('session-dir').catch(function () {});
     var data = rec.kind === 'paste' ? new TextEncoder().encode(rec.text) : rec.bytes;
     sha256Hex(data).then(function (hash) {
@@ -2030,6 +2269,7 @@
       bankTotal: state.bankTotal,
       exportedTo: state.exportedTo,
       sourceHash: state.sourceHash,
+      monthly: state.monthly,
       company: state.company.companyName || '',
       period: state.company.payPeriod || '',
       total: slips.length,
@@ -2053,11 +2293,8 @@
         : XLSX.read(s.file.bytes, { type: 'array', cellDates: true, cellStyles: true });
     } catch (e) {
       Vault.clearSession();
-      state.pendingSession = null;
-      renderWelcome();
       return;
     }
-    state.pendingSession = null;
     state.sourceRec = { kind: s.file.kind, name: s.file.name, bytes: s.file.bytes, text: s.file.text, hash: s.file.hash };
     state.sourceHash = s.file.hash || '';
     loadWorkbookObject(wb, s.file.name, s.file.kind === 'paste' ? null : s.file.bytes, { restore: st });
@@ -2079,7 +2316,6 @@
   function discardSession() {
     Promise.all([Vault.clearSession(), Vault.del('session-dir')]).then(function () {
       if (state.parsed) location.reload();
-      else { state.pendingSession = null; renderWelcome(); }
     });
   }
 
@@ -2120,47 +2356,6 @@
   // ---------------------------------------------------------------------------
   // Welcome card (returning visitors), quick start (first visit), data panel
   // ---------------------------------------------------------------------------
-  function ringSvg(pct, label) {
-    var c = 2 * Math.PI * 24;
-    return '<svg class="wl-ring" viewBox="0 0 58 58" aria-hidden="true"><circle class="trk" cx="29" cy="29" r="24" fill="none" stroke-width="6"/>' +
-      '<circle class="val" cx="29" cy="29" r="24" fill="none" stroke-width="6" stroke-linecap="round" stroke-dasharray="' + c.toFixed(1) + '" stroke-dashoffset="' + c.toFixed(1) + '" data-off="' + (c * (1 - Math.max(0, Math.min(1, pct)))).toFixed(1) + '"/>' +
-      '<text x="29" y="33.5" text-anchor="middle">' + escapeHtml(label) + '</text></svg>';
-  }
-
-  function renderWelcome() {
-    var el = $('welcome');
-    var s = state.pendingSession;
-    var c = state.profile.company || {};
-    var html = '';
-    if (s && !state.parsed) {
-      var st = s.state || {};
-      var steps = ['', 'Upload', 'Review', 'Design', 'Send', 'Send'];
-      var sending = st.step >= 4 && st.total;
-      html = ringSvg(sending ? (st.sent || 0) / st.total : (st.step || 2) / 5, sending ? (st.sent || 0) + '/' + st.total : (st.step || 2) + '/5') +
-        '<div class="wl-text"><div class="wl-kicker">Pick up where you left off</div><div class="wl-title">' + escapeHtml(s.file.name) + '</div>' +
-        '<div class="wl-meta">' + escapeHtml([st.company, st.period, st.step ? steps[st.step] + ' step' : '', sending ? (st.sent || 0) + ' of ' + st.total + ' sent' : ''].filter(Boolean).join(' · ')) +
-        ' · saved ' + escapeHtml(Vault.timeAgo(st.savedAt || s.file.savedAt)) + '</div></div>' +
-        '<div class="wl-actions"><button type="button" class="btn btn-light" id="btnResume">Resume →</button><button type="button" class="btn" id="btnDiscard">Start new</button></div>';
-    } else if (state.returning && (c.companyName || state.profile.logo)) {
-      var b = backupStatus();
-      var line = b.state === 'ok' ? 'settings file saved ' + escapeHtml(Vault.timeAgo(b.at)) + ' ✓'
-        : b.state === 'stale' ? '<span class="warn">changes since your last settings file</span>'
-        : b.state === 'never' ? '<span class="warn">no settings file saved yet</span>' : '';
-      html = '<div class="wl-art">' + Art.mascot('q-own') + '</div>' +
-        '<div class="wl-text"><div class="wl-kicker">Welcome back</div><div class="wl-title">' + escapeHtml(c.companyName || 'Good to see you again') + '</div>' +
-        '<div class="wl-meta">Company, logo and design are remembered on this computer' + (line ? ' · ' + line : '') + '</div></div>' +
-        (b.state === 'never' || b.state === 'stale' ? '<div class="wl-actions"><button type="button" class="btn btn-light" id="btnWlSave">' + ICON_SAVE.replace('<svg', '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2"') + ' Save settings file</button></div>' : '');
-    }
-    el.innerHTML = html;
-    el.classList.toggle('hidden', !html);
-    if (!html) return;
-    var ring = el.querySelector('.wl-ring .val');
-    if (ring) requestAnimationFrame(function () { requestAnimationFrame(function () { ring.style.strokeDashoffset = ring.getAttribute('data-off'); }); });
-    if ($('btnResume')) $('btnResume').addEventListener('click', function () { restoreSession(s, false); });
-    if ($('btnDiscard')) $('btnDiscard').addEventListener('click', discardSession);
-    if ($('btnWlSave')) $('btnWlSave').addEventListener('click', function () { openSavePoint(null); });
-  }
-
   function openTour(start) {
     return Guide.tour({
       start: start || 0,
@@ -2187,13 +2382,13 @@
         className: 'data-panel',
         label: 'Your data on this computer',
         html: '<h2>Your data stays on this computer</h2><p class="muted">Nothing is uploaded anywhere. This is what the browser keeps, and why.</p><ul class="data-list">' +
-          li(b.state === 'ok' ? 'ok' : b.state === 'empty' ? '' : 'warn', '⚙️', 'Settings', 'Company, logo, design and column choices. ' +
-            (b.state === 'ok' ? 'Settings file saved ' + escapeHtml(Vault.timeAgo(b.at)) + '.' : b.state === 'empty' ? 'Nothing set up yet.' : 'No up-to-date settings file yet: save one as a backup.')) +
-          li('', '📄', 'Open file and progress', sess ? escapeHtml(sess.file.name) + ': kept up to ' + Vault.SESSION_TTL_DAYS + ' days so a refresh, crash or restart loses nothing.' : prefs.remember ? 'Nothing open yet.' : 'Not kept (switched off below).') +
+          li(b.state === 'ok' ? 'ok' : b.state === 'empty' ? '' : 'warn', '⚙️', 'Company profile', 'Company details, logo, design, message, passwords and column choices. ' +
+            (b.state === 'ok' ? 'Saved as a file ' + escapeHtml(Vault.timeAgo(b.at)) + '.' : b.state === 'empty' ? 'Not set up yet.' : 'Not saved as a file yet: save one as a backup.')) +
+          li('', '📄', 'Open file and progress', sess ? escapeHtml(sess.file.name) + ': kept for 3 days so a refresh, crash or restart loses nothing.' : prefs.remember ? 'Nothing open yet.' : 'Not kept (switched off below).') +
           li('', '✉️', 'Delivery ticks', state.parsed ? plural(sentCount, 'employee') + ' marked as sent for ' + escapeHtml(state.company.payPeriod || 'this period') + (state.dirHandle && state.dirWritable ? ', also written to delivery-log.csv in your export folder.' : '. Download the delivery log to keep a copy.') : 'Kept per company and pay period, even when you close the browser.') +
           li(persisted ? 'ok' : '', persisted ? '🛡️' : 'ℹ️', 'Protected storage', persisted ? 'The browser will not clear this data by itself.' : 'The browser may clear this data when the disk runs full. The settings file is your backup.') +
           '</ul><label class="check"><input type="checkbox" id="optRemember"' + (prefs.remember ? ' checked' : '') + '><span>Remember my open file and progress on this computer. Turn this off on a shared computer.</span></label>' +
-          '<div class="actions"><button type="button" class="btn btn-primary" id="dpSave">Save settings file</button><button type="button" class="btn btn-danger" id="dpErase">Erase everything here</button></div>'
+          '<div class="actions"><button type="button" class="btn btn-primary" id="dpSave">Save company profile</button><button type="button" class="btn btn-danger" id="dpErase">Erase everything here</button></div>'
       });
       m.el.querySelector('#optRemember').addEventListener('change', function () {
         Vault.setPrefs({ remember: this.checked });
@@ -2231,17 +2426,13 @@
   renderDesignControls();
   bindImage('logo');
   bindImage('stamp');
-  updateSavedHint();
+  applyMode();
   goStep(1);
-  renderBackupChip();
   Vault.get('settings-handle').then(function (h) { if (h && h.createWritable) state.settingsHandle = h; }).catch(function () { /* none */ });
   Vault.loadSession().then(function (s) {
-    if (s && rememberOn()) {
-      state.pendingSession = s;
-      if (s.ageMs < AUTO_RESUME_MS && !state.parsed) { restoreSession(s, true); return; }
-    }
-    renderWelcome();
-    if (!state.returning && !s) {
+    if (s && rememberOn() && s.ageMs < AUTO_RESUME_MS && !state.parsed) { restoreSession(s, true); return; }
+    if (s) Vault.clearSession();
+    if (!state.returning && !state.profile.locked) {
       setTimeout(function () {
         if (interacted || state.parsed || document.querySelector('.modal-backdrop')) return;
         openTour();

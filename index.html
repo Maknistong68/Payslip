@@ -37,6 +37,13 @@
     </div></div>
   </header>
 
+  <div class="edit-bar hidden" id="editBar" role="status">
+    <div class="wrap edit-bar-inner">
+      <span><b>Editing the company profile.</b> Changes apply to every payslip from now on.</span>
+      <span class="actions"><button type="button" class="btn btn-small" id="btnCancelEdit">Cancel changes</button><button type="button" class="btn btn-small btn-primary" id="btnSaveEdit">Save profile</button></span>
+    </div>
+  </div>
+
   <main class="wrap">
     <noscript><div class="alert alert-error">This page needs JavaScript enabled to work.</div></noscript>
     <div id="libError" class="alert alert-error hidden">
@@ -60,8 +67,6 @@
         <div class="hero-art"><span class="orbit" aria-hidden="true"></span><div data-art="mascot"></div></div>
       </div>
 
-      <div class="welcome hidden" id="welcome" aria-live="polite"></div>
-
       <label class="dropzone" id="dropzone" for="fileInput">
         <input type="file" id="fileInput" accept=".xlsx,.xlsm,.xls,.csv" hidden>
         <div class="dropzone-inner">
@@ -76,27 +81,10 @@
       <div id="loadError"></div>
 
       <div class="start-cards">
-        <div class="start-card spot">
-          <span class="sc-icon"><svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></span>
-          <h3>First time?</h3>
-          <p class="muted">Fill the template: company details once, one row per employee.</p>
-          <div class="actions">
-            <button type="button" class="btn btn-primary" id="btnTemplate">Download template</button>
-            <button type="button" class="btn" id="btnSampleXlsx">Filled example</button>
-          </div>
-          <button type="button" class="link" id="btnLoadSample">Try with sample data <span class="arrow">→</span></button>
-          <button type="button" class="link guide-link" id="btnTour">▶ How it works</button>
-        </div>
-        <div class="start-card spot">
-          <span class="sc-icon"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 8v4l3 2"/></svg></span>
-          <h3>Used it before?</h3>
-          <p class="muted">Load last month's settings file: logo, design, company, columns.</p>
-          <div class="actions">
-            <label class="btn">Load settings file<input type="file" id="settingsInput" accept=".json,application/json" hidden></label>
-          </div>
-          <div class="muted small" id="savedHint"></div>
-        </div>
+        <div class="start-card spot" id="startCardA"></div>
+        <div class="start-card spot" id="startCardB"></div>
       </div>
+      <input type="file" id="profileInput" accept=".json,application/json" hidden>
 
       <details class="hint paste">
         <summary>No usable file? Paste the cells instead</summary>
@@ -205,7 +193,7 @@
       <div class="panel-head">
         <div>
           <h2>Design</h2>
-          <p class="muted">Pick a look. Saved automatically.</p>
+          <p class="muted" id="designSub">Set once: this becomes your company profile, so every payslip looks the same each month.</p>
         </div>
       </div>
 
@@ -250,15 +238,6 @@
             <div class="section-body display-groups" id="displayOptions"></div>
           </details>
 
-          <div class="section open-section reuse">
-            <h3>Reuse next month</h3>
-            <p class="muted small">One settings file = same payslips on any computer. Or a template pre-filled with your details and logo.</p>
-            <div class="actions">
-              <button type="button" class="btn" id="btnSaveSettings">Save settings file</button>
-              <label class="btn">Load settings file<input type="file" id="settingsInput2" accept=".json,application/json" hidden></label>
-              <button type="button" class="btn" id="btnMyTemplate">Download my template (.xlsx)</button>
-            </div>
-          </div>
         </div>
 
         <div class="design-preview">
@@ -275,7 +254,7 @@
 
       <div class="panel-nav">
         <button type="button" class="btn" data-go="2">← Back</button>
-        <button type="button" class="btn btn-primary" data-go="4">Continue to send →</button>
+        <button type="button" class="btn btn-primary" id="btnDesignNext">Save company profile &amp; continue →</button>
       </div>
     </section>
 
@@ -298,7 +277,7 @@
           <div class="send-facts" id="sendFacts"></div>
           <button type="button" class="btn btn-primary btn-xl" id="btnStartSending">Start</button>
         </div>
-        <div class="lock-card spot">
+        <div class="lock-card spot" id="lockCard">
           <div class="lock-title"><svg viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></svg> Password on the PDF</div>
           <label class="switch"><input type="checkbox" id="lockWhatsapp"><span class="sw"></span>WhatsApp <span class="badge ok">recommended</span></label>
           <label class="switch"><input type="checkbox" id="lockEmail"><span class="sw"></span>Email</label>
@@ -346,6 +325,7 @@
             <label class="wide"><span>Message</span><textarea id="msgText" rows="6"></textarea></label>
           </div>
           <p class="muted small"><code>{first_name}</code> <code>{name}</code> <code>{period}</code> <code>{company}</code> <code>{net}</code> <code>{password_hint}</code> (left out when the PDF is not locked)</p>
+          <p class="muted small" id="msgFixed"></p>
           <div class="msg-preview" id="msgPreview"></div>
         </div>
       </details>

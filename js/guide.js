@@ -291,7 +291,7 @@
     { scene: 'whatsapp', mood: 'send', title: 'Send on WhatsApp',
       text: 'The chat opens with the right person and the message typed. The PDF is <b>locked with the Iqama number</b>; attach it and press Send.' },
     { scene: 'email', mood: 'send', title: 'Or send by email',
-      text: 'One click makes a ready Outlook email with the payslip attached. Press Send. Before sending, the app offers to save your settings so next month is quick.',
+      text: 'One click makes a ready Outlook email with the payslip attached. Press Send. Company details and design are set up once as your company profile, so every month looks the same.',
       action: 'finish' }
   ];
 

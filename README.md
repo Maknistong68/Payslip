@@ -11,10 +11,31 @@ The Excel file never leaves the computer.
 ## How to use
 
 Open `index.html` in Chrome, Edge or Firefox (double-click it; it works from a USB stick or a shared drive).
-The page is a four-step wizard:
+### Company profile: set up once, the same payslip every month
+
+Payslips must not drift from month to month, so everything that makes a payslip look the way it does is
+kept in one **company profile**: company details, logo and stamp, design and what to show, the message,
+the password per channel and how the contractor's columns are read. Only the Excel file and the pay period
+change each month.
+
+- **First time** (no profile in this browser): Upload → Review → **Design (once)** → *Save company profile &
+  continue* saves the profile as a file (Chrome/Edge: picked once, then kept up to date) and moves on to Send.
+- **Every month after** (profile found in the browser, or loaded from its file on another computer):
+  **Upload → Review → Send**. The Design step is gone; company details, message and passwords are shown
+  read-only. Review only asks for the **pay period**, with one-click suggestions (from the sheet or file name,
+  the month after the last one, or the same as last time). A new file never inherits last month's period.
+- **The profile wins**: if the Excel Settings sheet names another company or has other pictures, the profile is
+  used and a note says so.
+- **Changing it is deliberate**: *Edit profile* (profile button at the top right, or the links on Review and
+  Send) opens an edit session with a bar: *Save profile* makes a new version and saves the file, *Cancel changes*
+  restores it exactly. The profile panel also saves the file, loads another profile, downloads the Excel
+  template pre-filled with the company details and logo, or removes the profile from this computer.
+- *Try with sample data* never becomes a profile.
+
+The steps:
 
 1. **Upload** – drop the Excel file (or CSV, or paste the cells straight from Excel). First time? Download the
-   template (or a filled example). Used it before? Load the settings file you saved last time.
+   template (or a filled example), or load a company profile. With a profile, the template comes pre-filled.
 2. **Review** – one sentence tells you whether the file is ready. Below it:
    - *Source bar* (only when needed): which sheet to read (or all sheets combined), which row holds the
      headers, whether to include hidden rows, a badge when a saved column setup was applied, and
@@ -23,15 +44,13 @@ The page is a four-step wizard:
    - *Totals*: earnings, deductions and net to pay, with a box for the bank / WPS transfer total that shows
      ✓ or the exact difference.
    - *Company details*: filled from the file's `Settings` sheet, or typed once here if the file has none
-     (saved on the computer and in the settings file).
+     (they become part of the company profile).
    - *Columns*: how each column of your sheet was understood. Anything guessed or ignored can be remapped
      in one click, and the choice is remembered for the next upload.
    - *Employees*: every row with its calculated earnings, deductions, net and the checks that failed.
-3. **Design** – one of 13 templates (Classic, Modern, Minimal, Executive, Steel, Corporate, Bold, Ledger,
+3. **Design** (first time, or while editing the profile) – one of 13 templates (Classic, Modern, Minimal, Executive, Steel, Corporate, Bold, Ledger,
    Compact, Split, Formal, Heritage, Receipt), accent colour, paper size, title, logo and stamp,
-   and a checklist of what to print, with a live preview. *Save settings file* / *Load settings file* keep
-   every payslip uniform across months and computers; *Download my template* gives an Excel file already
-   filled with your company details and logo.
+   and a checklist of what to print, with a live preview.
 4. **Send** – view first, then send. Nothing is sent by the page itself:
    - **View** opens the payslip in a viewer with *previous / next*, the net pay, the row's warnings and the
      send buttons. *Start* (or *Continue with …*) opens the next person not sent yet.
@@ -48,19 +67,14 @@ The page is a four-step wizard:
      CSV, restore ticks from a log, clear ticks.
    Rows are ticked as you send; the ticks survive reloads and export as a delivery log CSV with file hashes.
 
-### First visit, save point and never losing work
+### First visit and never losing work
 
-- **First visit** (nothing saved in this browser yet): a 30-second animated quick start opens by itself:
-  download the template, fill it, drop it, save the settings file. It can be replayed from *▶ 30-second guide*.
-  Returning visitors get a *Welcome back* card with their company and backup status instead.
-- **Save point**: before the Send step, if the setup (company, logo, design, columns, message) has no
-  up-to-date settings file, an animated save point offers to save one. Skipping is remembered until something
-  changes. The top bar shows the backup state at all times (*Save settings* / *Save changes* / *Backed up*).
-  In Chrome and Edge the file is picked once and then **kept up to date automatically**; other browsers download it.
-  The pay period and dates do not count as changes, so the monthly routine does not nag.
+- **First visit** (nothing saved in this browser): a short animated guide opens by itself (template, fill,
+  drop, view, WhatsApp, email). It can be replayed from *▶ How it works*.
+- The top bar shows the company profile and whether it is saved as a file (green) or not yet (amber).
 - **Refresh, crash or browser restart**: the open file, the step, the sheet and header choices, the export
-  options and the bank total are kept in the browser (IndexedDB). Within 12 hours the page reopens exactly where
-  it was; later, a *Pick up where you left off* card offers to resume (kept up to 30 days).
+  options, the bank total and this month's pay period are kept in the browser (IndexedDB). Within three days the
+  page reopens exactly where it was; older work is dropped (ticks are kept separately, per company and period).
 - **Sending is crash-proof**: every tick is written before the next click (localStorage, with a copy in
   IndexedDB) into an append-only journal, so two tabs or a restored session never erase each other's ticks.
   After a folder export the journal is also written to `delivery-log.csv` next to the PDFs, and *Restore ticks
@@ -145,9 +159,9 @@ js/xlsx-images.js reads pictures out of an .xlsx and embeds pictures into one (J
 js/pdf.js         13 PDF templates (each a small design spec), thumbnails, display options, passwords, register
 js/delivery.js    .eml drafts, mail-merge CSV, WhatsApp/Gmail links, Outlook macro and guides
 js/fonts/         Amiri Regular/Bold as base64 for Arabic text, plus its OFL licence
-js/app.js         the five-step UI, settings file, preview, export and send, session restore, backup state
+js/app.js         the step-by-step UI, company profile, preview, viewer and sending, session restore
 js/art.js         logo, the mascot "Qasi" and its moods, confetti, count-up numbers, card spotlight
-js/guide.js       animated quick start, save point, confirm dialogs and toasts (SVG scenes animated with CSS)
+js/guide.js       animated guide, dialogs and toasts (SVG scenes animated with CSS)
 js/vault.js       IndexedDB store, append-only delivery journal, first-visit record, fingerprints (also runs in Node)
 js/pwa.js         service worker registration, install button, update message, file handling
 sw.js             service worker (offline cache); manifest.webmanifest and icons/ for installing
@@ -192,7 +206,7 @@ No build step; edit the files and reload the page.
 - Pictures in formats the browser cannot decode (EMF/WMF) are ignored; use PNG or JPG in the Excel file.
 - The open file and progress are kept in the browser's storage without a password, like any local app data.
   On a shared computer, switch off *Remember my open file* in the *Private* panel, or use *Erase everything here*.
-- The self-updating settings file and the delivery log written into the export folder need Chrome or Edge;
+- The self-updating company profile file and the delivery log written into the export folder need Chrome or Edge;
   after a browser restart they ask once for permission again (one click). Other browsers download the files.
 
 ## Look and feel

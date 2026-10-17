@@ -186,7 +186,8 @@
   var MONTHLY_KEYS = ['payPeriod', 'periodStart', 'periodEnd', 'paymentDate'];
   function settingsFingerprint(obj) {
     var copy = {};
-    Object.keys(obj || {}).forEach(function (k) { if (k !== 'savedAt' && k !== 'version') copy[k] = obj[k]; });
+    var skip = ['savedAt', 'version', 'profileVersion', 'kind', 'lastPeriod', 'locked'];
+    Object.keys(obj || {}).forEach(function (k) { if (skip.indexOf(k) < 0) copy[k] = obj[k]; });
     if (copy.company) {
       var c = {};
       Object.keys(copy.company).forEach(function (k) { if (MONTHLY_KEYS.indexOf(k) < 0 && copy.company[k] !== '' && copy.company[k] != null) c[k] = copy.company[k]; });
