@@ -177,9 +177,10 @@
   }
 
   function deliveryLogCsv(entries) {
-    var rows = [['timestamp', 'employee_id', 'name', 'channel', 'contact', 'file', 'sha256', 'note']];
+    // action: sent, undo (tick removed) or clear (all ticks removed); source: which Excel file was loaded
+    var rows = [['timestamp', 'employee_id', 'name', 'channel', 'contact', 'file', 'sha256', 'note', 'action', 'source']];
     entries.forEach(function (e) {
-      rows.push([e.timestamp, e.employeeId, e.name, e.channel, e.contact || '', e.file || '', e.hash || '', e.note || '']);
+      rows.push([e.timestamp, e.employeeId, e.name || '', e.channel || '', e.contact || '', e.file || '', e.hash || '', e.note || '', e.action || 'sent', e.source || '']);
     });
     return toCsv(rows);
   }

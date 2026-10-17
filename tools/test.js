@@ -371,6 +371,59 @@ big.slips.forEach(function (slip, i) {
 var bigBuf = Buffer.from(bigDoc.output('arraybuffer'));
 console.log('1000 payslips rendered in', Date.now() - t0, 'ms,', (bigBuf.length / 1024 / 1024).toFixed(1), 'MB');
 
+// Safety net: the delivery journal never loses a tick or revives an undone one, whatever order copies merge in.
+var Vault = require(path.join(__dirname, '..', 'js', 'vault.js'));
+var Delivery = require(path.join(__dirname, '..', 'js', 'delivery.js'));
+(function () {
+  var t = function (m) { return '2026-10-17T10:' + (m < 10 ? '0' : '') + m + ':00.000Z'; };
+  var tabA = [{ timestamp: t(1), employeeId: 'E1', action: 'sent', channel: 'outlook' }, { timestamp: t(3), employeeId: 'E2', action: 'sent' }];
+  var tabB = [{ timestamp: t(1), employeeId: 'E1', action: 'sent', channel: 'outlook' }, { timestamp: t(2), employeeId: 'E3', action: 'sent' }, { timestamp: t(4), employeeId: 'E1', action: 'undo' }];
+  var merged = Vault.mergeLogs(tabA, tabB);
+  assert.strictEqual(merged.length, 4, 'duplicates collapse');
+  assert.deepStrictEqual(Object.keys(Vault.sentMap(merged)).sort(), ['E2', 'E3'], 'undo wins over the earlier send');
+  assert.deepStrictEqual(Vault.mergeLogs(tabB, tabA).map(function (e) { return e.id; }), merged.map(function (e) { return e.id; }), 'merge order does not matter');
+  var cleared = Vault.mergeLogs(merged, [{ timestamp: t(5), employeeId: '*', action: 'clear' }, { timestamp: t(6), employeeId: 'E9', action: 'sent' }]);
+  assert.deepStrictEqual(Object.keys(Vault.sentMap(cleared)), ['E9'], 'clear resets everything before it');
+  // logs saved by older versions: plain list, undone rows deleted or flagged
+  var legacy = Vault.normalizeLog([{ timestamp: t(1), employeeId: 'E1', channel: 'outlook' }, { timestamp: t(2), employeeId: 'E2', undone: true }]);
+  assert.strictEqual(legacy.length, 1);
+  assert.strictEqual(legacy[0].action, 'sent');
+  // a delivery log CSV round-trips (restore after a browser reset)
+  var csv = Delivery.deliveryLogCsv(cleared);
+  var back = Vault.logFromCsv(csv);
+  assert.deepStrictEqual(Object.keys(Vault.sentMap(back)), ['E9'], 'CSV restore keeps the same ticks');
+  assert.deepStrictEqual(Vault.parseCsv('a,"b ""q"", c"\r\n1,2\n'), [['a', 'b "q", c'], ['1', '2']]);
+  assert.throws(function () { Vault.logFromCsv('foo,bar\n1,2'); }, /not a delivery log/);
+  // settings fingerprint: key order and the monthly period fields do not matter, real changes do
+  var base = { savedAt: 'x', templateId: 'classic', company: { companyName: 'Acme', payPeriod: 'October 2026', crNumber: '1' } };
+  var same = { company: { crNumber: '1', payPeriod: 'November 2026', companyName: 'Acme' }, templateId: 'classic', savedAt: 'y' };
+  assert.strictEqual(Vault.settingsFingerprint(base), Vault.settingsFingerprint(same));
+  assert.notStrictEqual(Vault.settingsFingerprint(base), Vault.settingsFingerprint({ templateId: 'modern', company: base.company }));
+  assert.strictEqual(Vault.timeAgo(t(0), Date.parse(t(5))), '5 min ago');
+})();
+
+// PWA: every file the page loads is in the service worker cache list, and the manifest icons exist.
+(function () {
+  var root = path.join(__dirname, '..');
+  var sw = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
+  var listed = JSON.parse(sw.match(/var ASSETS = (\[[\s\S]*?\]);/)[1].replace(/'/g, '"'));
+  var html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  var needed = [];
+  html.replace(/<(?:script|link)[^>]+(?:src|href)="([^":#]+)"/g, function (m, u) { needed.push(u); });
+  var css = fs.readFileSync(path.join(root, 'css', 'styles.css'), 'utf8');
+  css.replace(/url\("(fonts\/[^"]+)"\)/g, function (m, u) { needed.push('css/' + u); });
+  needed.push('js/vendor/exceljs.min.js', 'manifest.webmanifest');
+  var manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.webmanifest'), 'utf8'));
+  manifest.icons.forEach(function (i) { needed.push(i.src); });
+  needed.forEach(function (u) {
+    assert.ok(listed.indexOf(u) >= 0, 'sw.js ASSETS is missing ' + u);
+  });
+  listed.forEach(function (u) {
+    if (u !== './') assert.ok(fs.existsSync(path.join(root, u)), 'sw.js lists a file that does not exist: ' + u);
+  });
+  assert.ok(manifest.icons.some(function (i) { return i.purpose === 'maskable'; }));
+})();
+
 // Styled ExcelJS template: round-trips through the parser, keeps validations, carries the logo.
 var ExcelJS = require(path.join(__dirname, '..', 'js', 'vendor', 'exceljs.min.js'));
 var JSZip = require(path.join(__dirname, '..', 'js', 'vendor', 'jszip.min.js'));

@@ -116,7 +116,8 @@
     opts = opts || {};
     var buddy = document.getElementById('buddy');
     if (!buddy) return;
-    Array.prototype.forEach.call(document.querySelectorAll('.qasi'), function (svg) {
+    // dialogs own their mascot (class q-own); the buddy and hero follow the app
+    Array.prototype.forEach.call(document.querySelectorAll('.qasi:not(.q-own)'), function (svg) {
       svg.setAttribute('data-mood', mood || 'idle');
     });
     var bubble = document.getElementById('buddyBubble');
@@ -137,7 +138,7 @@
     }
     if (opts.settle) {
       buddyTimer = setTimeout(function () {
-        Array.prototype.forEach.call(document.querySelectorAll('.qasi'), function (svg) {
+        Array.prototype.forEach.call(document.querySelectorAll('.qasi:not(.q-own)'), function (svg) {
           svg.setAttribute('data-mood', opts.settle);
         });
       }, opts.after || 2600);

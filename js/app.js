@@ -6,7 +6,7 @@
 
   if (typeof XLSX === 'undefined' || typeof jspdf === 'undefined' || typeof JSZip === 'undefined' ||
       typeof PayslipSchema === 'undefined' || typeof PayslipPDF === 'undefined' || typeof XlsxImages === 'undefined' ||
-      typeof PayslipDelivery === 'undefined') {
+      typeof PayslipDelivery === 'undefined' || typeof PayslipVault === 'undefined' || typeof PayslipGuide === 'undefined') {
     $('libError').classList.remove('hidden');
     return;
   }
@@ -14,6 +14,8 @@
   var Schema = PayslipSchema;
   var PDF = PayslipPDF;
   var Delivery = PayslipDelivery;
+  var Vault = PayslipVault;
+  var Guide = PayslipGuide;
   var jsPDF = jspdf.jsPDF;
   var STORAGE_KEY = 'payslip-generator-profile-v2';
   var LOG_KEY_PREFIX = 'payslip-generator-log-';
@@ -56,7 +58,13 @@
     exportedTo: '',     // human text: where the PDFs went
     log: [],            // delivery log entries for the current company+period
     parseOptions: { sheet: 'auto', headerRow: null, includeHidden: false },
-    bankTotal: ''
+    bankTotal: '',
+    sent: {},           // employeeId -> the delivery journal entry that counts (see PayslipVault.sentMap)
+    logKey: '',
+    sourceHash: '',     // SHA-256 of the loaded Excel file (or pasted text)
+    isSample: false,
+    settingsHandle: null,   // File System Access handle of the settings file, kept up to date automatically
+    savePointSkipped: ''    // settings fingerprint the user chose not to back up
   };
 
   // ---------------------------------------------------------------------------
@@ -98,6 +106,7 @@
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state.profile));
     } catch (e) { /* storage unavailable or full */ }
+    scheduleBackupCheck();
   }
 
   function loadProfile() {
@@ -164,8 +173,9 @@
   // ---------------------------------------------------------------------------
   // Steps
   // ---------------------------------------------------------------------------
-  function goStep(n) {
+  function goStep(n, opts) {
     if (n > 1 && !state.parsed) return;
+    if (n >= 4 && state.step <= 3 && !(opts && opts.force) && shouldOfferSavePoint()) { offerSavePoint(n); return; }
     var prev = state.step;
     state.step = n;
     document.body.setAttribute('data-step', String(n));
@@ -189,6 +199,8 @@
     if (n === 3) schedulePreview();
     if (n === 4) renderExportPanel();
     if (n === 5) renderSendPanel();
+    if (n === 1) renderWelcome();
+    saveSessionState();
   }
 
   // The mascot's line for each step.
@@ -224,6 +236,7 @@
   // Step 1: template downloads, upload
   // ---------------------------------------------------------------------------
   var XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  var SAMPLE_NAME = 'Sample data (25 employees)';
 
   function workbookToArray(wb) {
     return XLSX.write(wb, { type: 'array', bookType: 'xlsx', cellDates: true });
@@ -257,19 +270,22 @@
     });
   }
 
-  $('btnTemplate').addEventListener('click', function () {
-    downloadTemplate({}, 'Payslip_Template.xlsx', function () {
+  function downloadEmptyTemplate() {
+    return downloadTemplate({}, 'Payslip_Template.xlsx', function () {
       downloadBlob(new Blob([workbookToArray(Schema.buildTemplateWorkbook(XLSX))], { type: XLSX_MIME }), 'Payslip_Template.xlsx');
     });
-  });
-  $('btnSampleXlsx').addEventListener('click', function () {
-    downloadTemplate({ records: Schema.sampleRecords(25), sample: true }, 'Sample_Payslips.xlsx', function () {
+  }
+  function downloadExampleTemplate() {
+    return downloadTemplate({ records: Schema.sampleRecords(25), sample: true }, 'Sample_Payslips.xlsx', function () {
       downloadBlob(new Blob([workbookToArray(Schema.buildTemplateWorkbook(XLSX, { sampleRows: Schema.sampleRows(25) }))], { type: XLSX_MIME }), 'Sample_Payslips.xlsx');
     });
-  });
+  }
+  $('btnTemplate').addEventListener('click', downloadEmptyTemplate);
+  $('btnSampleXlsx').addEventListener('click', downloadExampleTemplate);
   $('btnLoadSample').addEventListener('click', function () {
-    loadWorkbookData(workbookToArray(Schema.buildTemplateWorkbook(XLSX, { sampleRows: Schema.sampleRows(25) })), 'Sample data (25 employees)');
+    loadWorkbookData(workbookToArray(Schema.buildTemplateWorkbook(XLSX, { sampleRows: Schema.sampleRows(25) })), SAMPLE_NAME);
   });
+  $('btnTour').addEventListener('click', function () { openTour(); });
 
   // Template pre-filled with the company details and the logo/stamp pictures.
   $('btnMyTemplate').addEventListener('click', function () {
@@ -288,11 +304,16 @@
   });
 
   // Paste cells straight from Excel (last resort when the file itself cannot be used).
+  function readPasted(text) {
+    return XLSX.read(text, { type: 'string', FS: text.indexOf('\t') >= 0 ? '\t' : ',', cellDates: true, raw: false });
+  }
+
   $('btnUsePaste').addEventListener('click', function () {
     var text = $('pasteBox').value;
     if (!text.trim()) { setAlert($('loadError'), 'Paste the cells first (select them in Excel, Ctrl+C, then Ctrl+V here).', 'warn'); return; }
     try {
-      var wb = XLSX.read(text, { type: 'string', FS: text.indexOf('\t') >= 0 ? '\t' : ',', cellDates: true, raw: false });
+      var wb = readPasted(text);
+      rememberFile({ kind: 'paste', name: 'Pasted cells', text: text });
       loadWorkbookObject(wb, 'Pasted cells', null);
     } catch (e) {
       setAlert($('loadError'), 'These cells could not be read: ' + escapeHtml(e.message), 'error');
@@ -318,6 +339,7 @@
 
   function handleFile(file) {
     if (/\.json$/i.test(file.name)) return loadSettingsFile(file);
+    if (/delivery log.*\.csv$/i.test(file.name) && state.parsed) return restoreLogFile(file);
     readFile(file).then(function (buf) { loadWorkbookData(buf, file.name); })
       .catch(function (e) { setAlert($('loadError'), escapeHtml(e.message), 'error'); });
   }
@@ -332,20 +354,32 @@
       setAlert($('loadError'), msg, 'error');
       return;
     }
+    rememberFile({ kind: 'file', name: name, bytes: arrayBuffer });
     loadWorkbookObject(wb, name, arrayBuffer);
   }
 
-  function loadWorkbookObject(wb, name, arrayBuffer) {
+  // opts.restore: the saved session (step, sheet, toggles) when coming back after a refresh or restart.
+  function loadWorkbookObject(wb, name, arrayBuffer, opts) {
+    var restore = (opts && opts.restore) || null;
     $('loadError').innerHTML = '';
     state.parseOptions = { sheet: 'auto', headerRow: null, includeHidden: false };
     state.bankTotal = '';
     state.wb = wb;
     state.fileName = name;
+    state.isSample = name === SAMPLE_NAME;
     state.excelImages = { logo: null, stamp: null };
     state.dirHandle = null;
     state.exportedTo = '';
     $('exportMessage').innerHTML = '';
     $('sendMessage').innerHTML = '';
+    if (restore) {
+      var po = restore.parseOptions || {};
+      state.parseOptions = { sheet: typeof po.sheet === 'string' ? po.sheet : 'auto', headerRow: po.headerRow > 0 ? +po.headerRow : null, includeHidden: !!po.includeHidden };
+      state.bankTotal = restore.bankTotal || '';
+      state.exportedTo = restore.exportedTo || '';
+      if (typeof restore.skipErrors === 'boolean') $('skipErrors').checked = restore.skipErrors;
+      if (typeof restore.protectPdfs === 'boolean') $('protectPdfs').checked = restore.protectPdfs;
+    }
     reparse();
     if (arrayBuffer) XlsxImages.extractImages(JSZip, arrayBuffer).then(function (images) {
       if (!images.length) return;
@@ -354,9 +388,9 @@
       var tasks = [];
       if (pick[0]) tasks.push(normalizeImage(XlsxImages.toDataUrl(pick[0]), pick[0].mime === 'image/jpeg').then(function (img) { state.excelImages.logo = img; }, function () {}));
       if (pick[1]) tasks.push(normalizeImage(XlsxImages.toDataUrl(pick[1]), pick[1].mime === 'image/jpeg').then(function (img) { state.excelImages.stamp = img; }, function () {}));
-      return Promise.all(tasks).then(function () { renderImages(); invalidate(); });
+      return Promise.all(tasks).then(function () { renderImages(); invalidate(); scheduleBackupCheck(); });
     }).catch(function () { /* csv / xls / no pictures */ });
-    goStep(2);
+    goStep(restore ? Math.min(5, Math.max(2, restore.step || 2)) : 2, { force: !!restore });
   }
 
   function reparse() {
@@ -369,6 +403,7 @@
     renderSourceBar();
     renderReview();
     populatePreviewSelect();
+    saveSessionState();
   }
 
   // Which sheet, which header row, hidden rows, saved setup: the controls for files that are not our template.
@@ -430,7 +465,7 @@
       '<div><span class="k">Net to pay</span><span class="v strong">' + cur + ' ' + Schema.formatMoney(st.totalNet) + '</span></div></div>' +
       '<label class="rec-input"><span>Bank / WPS transfer total</span><input type="text" id="bankTotal" inputmode="decimal" placeholder="e.g. ' + Schema.formatMoney(st.totalNet) + '" value="' + escapeHtml(state.bankTotal) + '"></label>' +
       '<div class="rec-status">' + status + '</div>';
-    $('bankTotal').addEventListener('change', function () { state.bankTotal = this.value; renderReconcile(); });
+    $('bankTotal').addEventListener('change', function () { state.bankTotal = this.value; renderReconcile(); saveSessionState(); });
   }
 
   // Company settings: Excel values win, blanks are filled from the saved profile.
@@ -484,6 +519,7 @@
     state.profile.company[k] = v;
     saveProfile();
     invalidate();
+    if (k === 'companyName' || k === 'payPeriod' || k === 'periodStart') scheduleRekey();
   }
 
   // Anything that changes the rendered PDFs clears the per-employee cache.
@@ -838,10 +874,7 @@
     };
   }
 
-  $('btnSaveSettings').addEventListener('click', function () {
-    var obj = settingsFileObject();
-    downloadBlob(new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' }), PDF.safeFileName('payslip-settings - ' + (obj.company.companyName || 'my company')) + '.json');
-  });
+  $('btnSaveSettings').addEventListener('click', function () { saveSettingsFile(); });
 
   function loadSettingsFile(file) {
     return readFile(file, 'text').then(function (text) {
@@ -852,6 +885,7 @@
       if (state.parsed) reparse();
       renderDesignControls();
       updateSavedHint();
+      markBackedUp('loaded');
       setAlert($('loadError'), 'Settings loaded from ' + escapeHtml(file.name) + (obj.company && obj.company.companyName ? ' (' + escapeHtml(obj.company.companyName) + ')' : '') + '.' + (state.parsed ? '' : ' Now upload the Excel file.'), 'ok');
       invalidate();
     }).catch(function (e) {
@@ -1032,8 +1066,8 @@
     }
   }
 
-  $('skipErrors').addEventListener('change', function () { renderExportPanel(); });
-  $('protectPdfs').addEventListener('change', function () { state.cache = {}; renderExportPanel(); });
+  $('skipErrors').addEventListener('change', function () { renderExportPanel(); saveSessionState(); });
+  $('protectPdfs').addEventListener('change', function () { state.cache = {}; renderExportPanel(); saveSessionState(); });
 
   function setProgress(done, total, label, which) {
     var suffix = which === 5 ? '5' : '';
@@ -1133,6 +1167,7 @@
       var blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
       downloadBlob(blob, baseName() + '.zip');
       state.exportedTo = 'zip';
+      saveSessionState();
       celebrateDone();
       setAlert($('exportMessage'), '<strong>Done.</strong> ' + plural(items.length, 'PDF file') + ' + manifest.csv in a ZIP (' + (blob.size / 1024 / 1024).toFixed(1) + ' MB, ' + ((Date.now() - started) / 1000).toFixed(1) + ' s).' + protectNote(items), 'ok');
     } catch (e) {
@@ -1176,7 +1211,11 @@
       }
       await writeToDir(sub, 'manifest.csv', Delivery.manifestCsv(items, state.company));
       state.dirHandle = sub;
+      state.dirWritable = true;
       state.exportedTo = 'folder';
+      saveSessionState();
+      Vault.set('session-dir', { dir: sub, hash: state.sourceHash }).catch(function () { /* handle not storable in this browser */ });
+      journalToDisk();
       celebrateDone();
       setAlert($('exportMessage'), '<strong>Done.</strong> ' + plural(items.length, 'PDF file') + ' + manifest.csv written to the folder <code>' + escapeHtml(baseName()) + '</code> (' + ((Date.now() - started) / 1000).toFixed(1) + ' s).' + protectNote(items) + ' <button type="button" class="btn btn-small" data-go="5" style="margin-left:8px">Continue to send →</button>', 'ok');
       $('exportMessage').querySelector('[data-go]').addEventListener('click', function () { goStep(5); });
@@ -1249,24 +1288,129 @@
     return LOG_KEY_PREFIX + Schema.asciiSlug(state.company.companyName || 'company').toLowerCase() + '-' + Schema.periodSlug(state.company.payPeriod, state.company.periodStart);
   }
 
+  // The delivery journal is append-only (sent / undo / clear entries). It lives in localStorage (written
+  // synchronously, so a tick survives a crash right after the click) with a copy in IndexedDB, and every
+  // write merges what is stored first, so two tabs or a restored session never erase each other's ticks.
+  function setLog(entries) {
+    state.log = entries;
+    state.sent = Vault.sentMap(entries);
+  }
+
   function loadLog() {
-    try {
-      state.log = JSON.parse(localStorage.getItem(logKey()) || '[]');
-    } catch (e) { state.log = []; }
+    var key = logKey();
+    state.logKey = key;
+    setLog(Vault.normalizeLog(Vault.readJson(key, [])));
+    Vault.get('log:' + key).then(function (copy) {
+      if (!copy || key !== state.logKey) return;
+      var merged = Vault.mergeLogs(state.log, copy);
+      if (merged.length !== state.log.length) { setLog(merged); saveLog(); refreshSendViews(); }
+    }).catch(function () { /* no IndexedDB */ });
   }
 
   function saveLog() {
-    try { localStorage.setItem(logKey(), JSON.stringify(state.log)); } catch (e) { /* ignore */ }
+    var key = state.logKey || logKey();
+    setLog(Vault.mergeLogs(Vault.readJson(key, []), state.log));
+    if (!Vault.writeJson(key, state.log)) {
+      Guide.toast({ id: 'logFull', kind: 'warn', html: '<b>Browser storage is full.</b> Ticks are kept in this tab only: download the delivery log now.', timeout: 0,
+        actions: [{ label: 'Download log', primary: true, onClick: function () { $('btnLogCsv').click(); } }] });
+    }
+    Vault.set('log:' + key, state.log).catch(function () { /* memory only */ });
+    journalToDisk();
+    saveSessionState();
+  }
+
+  function addLogEntry(entry) {
+    entry.timestamp = new Date().toISOString();
+    entry.source = (state.sourceHash || '').slice(0, 12);
+    state.log = state.log.concat([entry]);
+    saveLog();
   }
 
   function isSent(slip) {
-    return state.log.some(function (e) { return e.employeeId === slip.employeeId && !e.undone; });
+    return !!state.sent[slip.employeeId];
+  }
+
+  function refreshSendViews() {
+    if (!state.parsed) return;
+    if (state.step === 5) {
+      renderSendList();
+      renderSummaryChips();
+      updateNextMeter();
+      renderSendNotice();
+    }
+  }
+
+  // Company name or period edited while sending: the ticks follow (after typing stops).
+  var rekeyTimer = null;
+  function scheduleRekey() {
+    clearTimeout(rekeyTimer);
+    rekeyTimer = setTimeout(function () {
+      if (!state.parsed || logKey() === state.logKey) return;
+      var carry = state.log;
+      loadLog();
+      if (!state.log.length && Object.keys(Vault.sentMap(carry)).length) {
+        setLog(carry.slice());
+        saveLog();
+      }
+      refreshSendViews();
+    }, 800);
+  }
+
+  // After a folder export the journal is also written next to the PDFs, so even a full browser reset
+  // cannot lose who already received a payslip.
+  var journalTimer = null;
+  function journalToDisk() {
+    var dir = state.dirHandle;
+    if (!dir || !state.log.length) return;
+    clearTimeout(journalTimer);
+    journalTimer = setTimeout(function () {
+      var check = dir.queryPermission ? dir.queryPermission({ mode: 'readwrite' }) : Promise.resolve('granted');
+      check.then(function (perm) {
+        state.dirWritable = perm === 'granted';
+        if (!state.dirWritable) { renderSummaryChips(); return; }
+        return writeToDir(dir, 'delivery-log.csv', Delivery.deliveryLogCsv(state.log));
+      }).catch(function () { state.dirWritable = false; });
+    }, 400);
+  }
+
+  function reconnectFolder() {
+    var dir = state.dirHandle;
+    if (!dir || !dir.requestPermission) return;
+    dir.requestPermission({ mode: 'readwrite' }).then(function (perm) {
+      state.dirWritable = perm === 'granted';
+      if (state.dirWritable) {
+        journalToDisk();
+        Guide.toast({ kind: 'ok', html: 'Folder reconnected. Every tick is written to <b>delivery-log.csv</b> again.' });
+      }
+      renderSummaryChips();
+    }).catch(function () { /* refused */ });
+  }
+
+  function restoreLogFile(file) {
+    return readFile(file, 'text').then(function (text) {
+      var entries = Vault.logFromCsv(text);
+      var fromCsv = Vault.sentMap(entries);
+      // whoever the log shows as sent and is not ticked here gets a fresh tick (so a later "clear" or
+      // a reset browser cannot hide it), with the original date kept in the note
+      var now = Date.now();
+      var restored = Object.keys(fromCsv).filter(function (id) { return !state.sent[id]; }).map(function (id, k) {
+        var e = fromCsv[id];
+        return { action: 'sent', timestamp: new Date(now + k).toISOString(), employeeId: id, name: e.name, channel: e.channel, contact: e.contact, file: e.file, hash: e.hash, source: e.source,
+          note: 'restored from delivery log (sent ' + String(e.timestamp).slice(0, 16).replace('T', ' ') + (e.note ? ', ' + e.note : '') + ')' };
+      });
+      setLog(Vault.mergeLogs(state.log, restored));
+      saveLog();
+      refreshSendViews();
+      Guide.toast({ kind: 'ok', html: '<b>Delivery log read.</b> ' + (restored.length ? plural(restored.length, 'employee is', 'employees are') + ' marked as sent again.' : 'Everyone in it was already marked as sent.') });
+    }).catch(function (e) {
+      Guide.toast({ kind: 'warn', html: 'Could not read that log: ' + escapeHtml(e.message) });
+    });
   }
 
   function markSent(slip, channel, note) {
     var art = state.cache[Object.keys(state.cache).filter(function (k) { return k.indexOf(slip.employeeId + '|') === 0; })[0]];
-    state.log.push({
-      timestamp: new Date().toISOString(),
+    addLogEntry({
+      action: 'sent',
       employeeId: slip.employeeId,
       name: slip.name,
       channel: channel,
@@ -1275,7 +1419,6 @@
       hash: art ? art.hash : '',
       note: note || ''
     });
-    saveLog();
     renderSendList();
     renderSummaryChips();
     updateNextMeter();
@@ -1329,8 +1472,7 @@
   });
 
   function unmarkSent(slip) {
-    state.log = state.log.filter(function (e) { return e.employeeId !== slip.employeeId; });
-    saveLog();
+    addLogEntry({ action: 'undo', employeeId: slip.employeeId, name: slip.name, channel: currentChannel().id, note: 'tick removed' });
     renderSendList();
     renderSummaryChips();
     updateNextMeter();
@@ -1344,14 +1486,18 @@
       channelEnabled('whatsapp') ? '<span class="chip"><strong>' + slips.filter(function (s) { return s.fields.mobile; }).length + '</strong> with mobile</span>' : '',
       '<span class="chip"><strong>' + slips.filter(function (s) { return s.fields.email; }).length + '</strong> with email</span>',
       '<span class="chip"><strong>' + sent + '</strong> marked sent</span>',
-      state.exportedTo ? '<span class="chip ok">PDFs exported</span>' : '<span class="chip warn">PDFs not exported yet</span>'
+      state.exportedTo ? '<span class="chip ok">PDFs exported</span>' : '<span class="chip warn">PDFs not exported yet</span>',
+      state.dirHandle ? (state.dirWritable ? '<span class="chip ok" title="Every tick is also written to delivery-log.csv in the export folder">Log saved in folder</span>'
+        : '<button type="button" class="chip warn" id="btnReconnect" title="After a restart the browser needs your OK to write to the folder again">Reconnect folder for the log</button>') : ''
     ].join('');
+    if ($('btnReconnect')) $('btnReconnect').addEventListener('click', reconnectFolder);
   }
 
   function renderSendPanel() {
     if (!state.parsed) return;
     var slips = exportableSlips();
     renderSummaryChips();
+    renderSendNotice();
     $('channelCards').classList.toggle('hidden', visibleChannels().length < 2);
     $('channelCards').innerHTML = visibleChannels().map(function (c) {
       var count = c.contact === 'mobile' ? slips.filter(function (s) { return s.fields.mobile; }).length
@@ -1527,20 +1673,28 @@
       downloadBlob(new Blob([art.bytes], { type: 'application/pdf' }), art.fileName);
       return;
     }
+    var sending = act === 'eml' || act === 'share' || act === 'wa' || act === 'gmail' || act === 'mailto';
+    if (sending && isSent(slip)) {
+      // already sent (maybe before a refresh or in another tab): ask before making a second email
+      e.preventDefault();
+      confirmResend(slip).then(function (yes) {
+        if (!yes) return;
+        if (act === 'eml') downloadDraft(slip);
+        else if (act === 'share') shareSlip(slip);
+        else {
+          window.open(el.href, act === 'mailto' ? '_self' : '_blank', 'noopener');
+          markSent(slip, act === 'wa' ? 'whatsapp' : 'email', 'sent again');
+        }
+      });
+      return;
+    }
     if (act === 'eml') {
       downloadDraft(slip);
       return;
     }
     if (act === 'share') {
       e.preventDefault();
-      var a2 = artifactFor(slip);
-      var m2 = messageFor(slip);
-      var file = new File([a2.bytes], a2.fileName, { type: 'application/pdf' });
-      navigator.share({ files: [file], title: m2.subject, text: m2.subject + '\n' + m2.text }).then(function () {
-        markSent(slip, 'whatsapp', 'shared');
-      }).catch(function (err) {
-        if (err && err.name !== 'AbortError') setAlert($('sendMessage'), 'Share failed: ' + escapeHtml(err.message) + '. Use "Open chat" and attach the file by hand.', 'warn');
-      });
+      shareSlip(slip);
       return;
     }
     if (act === 'wa' || act === 'gmail' || act === 'mailto') {
@@ -1548,6 +1702,41 @@
       setTimeout(function () { markSent(slip, act === 'wa' ? 'whatsapp' : 'email', act === 'wa' ? 'chat opened' : 'compose opened'); }, 50);
     }
   });
+
+  function shareSlip(slip) {
+    var a2 = artifactFor(slip);
+    var m2 = messageFor(slip);
+    var file = new File([a2.bytes], a2.fileName, { type: 'application/pdf' });
+    navigator.share({ files: [file], title: m2.subject, text: m2.subject + '\n' + m2.text }).then(function () {
+      markSent(slip, 'whatsapp', 'shared');
+    }).catch(function (err) {
+      if (err && err.name !== 'AbortError') setAlert($('sendMessage'), 'Share failed: ' + escapeHtml(err.message) + '. Use "Open chat" and attach the file by hand.', 'warn');
+    });
+  }
+
+  function confirmResend(slip) {
+    var e = state.sent[slip.employeeId] || {};
+    var when = e.timestamp ? new Date(e.timestamp) : null;
+    var whenText = when ? when.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) + ', ' + when.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : 'earlier';
+    return Guide.confirm({
+      title: 'Already sent',
+      html: '<b>' + escapeHtml(slip.name) + '</b> was marked as sent on <b>' + escapeHtml(whenText) + '</b>' + (e.note ? ' (' + escapeHtml(e.note) + ')' : '') + '. Sending again means a second email for this person.',
+      ok: 'Send again', cancel: 'Keep one'
+    });
+  }
+
+  // A warning when some ticks were made while a different version of the Excel file was loaded.
+  function renderSendNotice() {
+    var el = $('sendNotice');
+    var cur = (state.sourceHash || '').slice(0, 12);
+    var visible = {};
+    exportableSlips().forEach(function (sl) { visible[sl.employeeId] = sl.name; });
+    var other = Object.keys(state.sent).filter(function (k) { var e = state.sent[k]; return cur && e.source && e.source !== cur && visible[k] != null; });
+    el.innerHTML = other.length
+      ? '<div class="alert alert-warn"><strong>' + plural(other.length, 'payslip was', 'payslips were') + ' sent while a different version of the Excel file was open</strong> (' +
+        escapeHtml(other.slice(0, 3).map(function (k) { return visible[k]; }).join(', ')) + (other.length > 3 ? '…' : '') + '). If their amounts changed, untick them and send again.</div>'
+      : '';
+  }
 
   async function downloadEmlPack() {
     var slips = exportableSlips().filter(function (s) { return s.fields.email; });
@@ -1623,26 +1812,447 @@
     downloadBlob(new Blob([Delivery.deliveryLogCsv(state.log)], { type: 'text/csv' }), baseName() + ' - delivery log.csv');
   });
   $('btnClearSent').addEventListener('click', function () {
-    if (!state.log.length || confirm('Clear all "sent" ticks for ' + (state.company.payPeriod || 'this period') + '? The downloaded delivery log keeps the history.')) {
-      state.log = [];
-      saveLog();
+    var n = Object.keys(state.sent).length;
+    if (!n) return;
+    Guide.confirm({ title: 'Clear all ticks?', danger: true, ok: 'Clear ' + plural(n, 'tick'),
+      html: 'Every employee of <b>' + escapeHtml(state.company.payPeriod || 'this period') + '</b> will show as not sent. The delivery log keeps the history.' }).then(function (yes) {
+      if (!yes) return;
+      addLogEntry({ action: 'clear', employeeId: '*', note: 'all ticks cleared' });
       renderSendPanel();
-    }
+    });
   });
+  $('logInput').addEventListener('change', function (e) {
+    var f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (f) restoreLogFile(f);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Settings backup: a file on disk, so clearing the browser or a new computer loses nothing
+  // ---------------------------------------------------------------------------
+  var ICON_SAVE = '<svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/></svg>';
+  var ICON_SHIELD = '<svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>';
+
+  function settingsHash() {
+    return Vault.settingsFingerprint(settingsFileObject());
+  }
+
+  function backupStatus() {
+    var c = state.profile.company || {};
+    var worth = c.companyName || effectiveImage('logo') || Object.keys(state.profile.columnOverrides).length || (state.parsed && !state.isSample);
+    if (state.isSample || !worth) return { state: 'empty' };
+    var b = Vault.backup();
+    if (!b.hash) return { state: 'never' };
+    if (b.hash !== settingsHash()) return { state: 'stale', at: b.at, how: b.how };
+    return { state: 'ok', at: b.at, how: b.how };
+  }
+
+  function markBackedUp(how) {
+    Vault.setBackup({ hash: settingsHash(), at: new Date().toISOString(), how: how });
+    renderBackupChip(true);
+  }
+
+  var backupTimer = null;
+  function scheduleBackupCheck() {
+    clearTimeout(backupTimer);
+    backupTimer = setTimeout(function () {
+      if (state.settingsHandle && backupStatus().state === 'stale') autoSaveSettings();
+      else renderBackupChip();
+    }, 700);
+  }
+
+  function renderBackupChip(bump) {
+    var chip = $('backupChip');
+    var st = backupStatus();
+    chip.className = 'top-chip backup-chip state-' + st.state + (st.state === 'empty' ? ' hidden' : '') + (bump ? ' bump' : '');
+    if (st.state === 'ok') {
+      chip.innerHTML = ICON_SHIELD + '<span class="lbl">' + (st.how === 'auto' ? 'Auto-saved' : 'Backed up') + '</span>';
+      chip.title = 'Settings file saved ' + Vault.timeAgo(st.at) + '. Click to see or save again.';
+    } else {
+      chip.innerHTML = ICON_SAVE + '<span class="lbl">' + (st.state === 'stale' ? 'Save changes' : 'Save settings') + '</span>';
+      chip.title = st.state === 'stale' ? 'You changed settings since the last settings file.' : 'Your setup lives only in this browser. Save a settings file.';
+    }
+    chip.setAttribute('aria-label', chip.title);
+    if (state.step === 1) renderWelcome();
+  }
+
+  function settingsJson() {
+    return JSON.stringify(settingsFileObject(), null, 2);
+  }
+
+  function settingsFileName() {
+    return PDF.safeFileName('payslip-settings - ' + (state.company.companyName || state.profile.company.companyName || 'my company')) + '.json';
+  }
+
+  function writeSettingsTo(handle) {
+    return handle.createWritable().then(function (w) {
+      return w.write(settingsJson()).then(function () { return w.close(); });
+    });
+  }
+
+  function autoSaveSettings() {
+    var h = state.settingsHandle;
+    (h.queryPermission ? h.queryPermission({ mode: 'readwrite' }) : Promise.resolve('denied')).then(function (perm) {
+      if (perm !== 'granted') { renderBackupChip(); return; }
+      return writeSettingsTo(h).then(function () { markBackedUp('auto'); });
+    }).catch(function () { renderBackupChip(); });
+  }
+
+  // Chrome/Edge: a Save dialog once, then that same file is kept up to date. Others: a download.
+  function saveSettingsFile() {
+    var h = state.settingsHandle;
+    var viaHandle = h && h.requestPermission
+      ? h.requestPermission({ mode: 'readwrite' }).then(function (perm) {
+          if (perm !== 'granted') throw new Error('no permission');
+          return writeSettingsTo(h).then(function () { return 'file'; });
+        })
+      : Promise.reject(new Error('no handle'));
+    function download() {
+      downloadBlob(new Blob([settingsJson()], { type: 'application/json' }), settingsFileName());
+      return 'download';
+    }
+    return viaHandle.catch(function () {
+      if (typeof window.showSaveFilePicker !== 'function') return download();
+      return window.showSaveFilePicker({ suggestedName: settingsFileName(), id: 'payslip-settings', types: [{ description: 'Payslip settings', accept: { 'application/json': ['.json'] } }] }).then(function (handle) {
+        return writeSettingsTo(handle).then(function () {
+          state.settingsHandle = handle;
+          Vault.set('settings-handle', handle).catch(function () { /* handle not storable */ });
+          return 'file';
+        });
+      }, function (err) {
+        return err && err.name === 'AbortError' ? null : download();
+      });
+    }).then(function (how) {
+      if (!how) return false;
+      markBackedUp(how);
+      Guide.toast({ id: 'savedToast', kind: 'save', icon: '💾', html: how === 'download'
+        ? '<b>Settings file saved</b> to your Downloads. Keep it with your payroll files; next month just load it.'
+        : '<b>Settings file saved.</b> It now updates itself whenever you change something.' });
+      return true;
+    });
+  }
+
+  $('backupChip').addEventListener('click', function () { openSavePoint(null); });
+
+  // ---------------------------------------------------------------------------
+  // Save point: before exporting, offer to save the setup (once per set of changes)
+  // ---------------------------------------------------------------------------
+  function shouldOfferSavePoint() {
+    var st = backupStatus().state;
+    return (st === 'never' || st === 'stale') && state.savePointSkipped !== settingsHash();
+  }
+
+  function savePointItems() {
+    var c = state.company && Object.keys(state.company).length ? state.company : (state.profile.company || {});
+    var t = PDF.TEMPLATES.filter(function (x) { return x.id === state.profile.templateId; })[0];
+    var hiddenOpts = PDF.DISPLAY_OPTIONS.filter(function (o) { return !state.profile.display[o.key]; }).length;
+    var cols = Object.keys(state.profile.columnOverrides).length;
+    var logo = effectiveImage('logo');
+    return [
+      { label: 'Company', value: [c.companyName, c.crNumber ? 'CR ' + c.crNumber : ''].filter(Boolean).join(' · ') || 'not filled in yet', ok: !!c.companyName },
+      { label: 'Logo', value: logo ? 'included' : 'none yet', ok: !!logo, thumb: logo ? logo.dataUrl : '' },
+      { label: 'Design', value: (t ? t.name : '') + ' · ' + String(state.profile.paper).toUpperCase() + (hiddenOpts ? ' · ' + plural(hiddenOpts, 'item') + ' hidden' : ''), ok: true },
+      { label: 'Column choices', value: cols ? plural(cols, 'column') + ' remembered' : 'none needed', ok: cols > 0 },
+      { label: 'Email message', value: c.messageText && c.messageText !== currentDefault('messageText') ? 'your own text' : 'standard text', ok: true }
+    ];
+  }
+
+  function openSavePoint(target) {
+    var st = backupStatus();
+    var fsa = typeof window.showSaveFilePicker === 'function';
+    return Guide.savePoint({
+      title: st.state === 'ok' ? 'Your setup is backed up' : target ? (st.state === 'stale' ? 'You changed a few things. Save them first?' : 'Save point! Keep your setup safe') : 'Save your setup',
+      text: st.state === 'ok'
+        ? 'Saved ' + escapeHtml(Vault.timeAgo(st.at)) + (st.how === 'auto' ? ' and kept up to date automatically' : '') + '. Save again any time.'
+        : 'Right now your company details, logo and design live only in this browser. Clearing it or switching computers would lose them. One small file keeps it all for next month.',
+      items: savePointItems(),
+      saveLabel: st.state === 'ok' ? 'Save again' : 'Save settings file',
+      skipLabel: target ? 'Continue without saving' : 'Not now',
+      note: fsa ? 'Pick a place once, for example your payroll folder. After that the file updates itself.' : 'The file goes to your Downloads folder. Move it next to your payroll files.',
+      onSave: saveSettingsFile
+    }).then(function (r) {
+      if (!target) return;
+      if (r === 'skip') state.savePointSkipped = settingsHash();
+      if (r === 'skip' || r === 'saved') goStep(target, { force: true });
+    });
+  }
+
+  function offerSavePoint(target) {
+    openSavePoint(target);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Session: the open file and where the user was, kept in IndexedDB so a refresh, a crash or a
+  // browser restart (even mid-sending) brings everything back exactly as it was.
+  // ---------------------------------------------------------------------------
+  var AUTO_RESUME_MS = 12 * 3600 * 1000;
+
+  function rememberOn() {
+    return Vault.prefs().remember !== false;
+  }
+
+  function rememberFile(rec) {
+    state.sourceRec = rec;
+    state.sourceHash = '';
+    state.pendingSession = null;
+    Vault.del('session-dir').catch(function () {});
+    var data = rec.kind === 'paste' ? new TextEncoder().encode(rec.text) : rec.bytes;
+    sha256Hex(data).then(function (hash) {
+      state.sourceHash = hash;
+      rec.hash = hash;
+      return storeSessionFile(rec);
+    }).catch(function () { /* storage blocked: the app still works, it just cannot resume */ });
+  }
+
+  function storeSessionFile(rec) {
+    if (!rec || !rememberOn()) return Promise.resolve();
+    return Vault.saveSessionFile({ savedAt: new Date().toISOString(), kind: rec.kind, name: rec.name, bytes: rec.kind === 'file' ? rec.bytes : null, text: rec.kind === 'paste' ? rec.text : null, hash: rec.hash || '' })
+      .then(function () { saveSessionState(); requestPersistence(); });
+  }
+
+  var sessionTimer = null;
+  function saveSessionState() {
+    if (!state.parsed || !rememberOn()) return;
+    clearTimeout(sessionTimer);
+    sessionTimer = setTimeout(writeSessionState, 250);
+  }
+
+  function writeSessionState() {
+    clearTimeout(sessionTimer);
+    if (!state.parsed || !rememberOn()) return Promise.resolve();
+    var slips = exportableSlips();
+    return Vault.saveSessionState({
+      savedAt: new Date().toISOString(),
+      fileName: state.fileName,
+      step: state.step,
+      parseOptions: state.parseOptions,
+      skipErrors: $('skipErrors').checked,
+      protectPdfs: $('protectPdfs').checked,
+      bankTotal: state.bankTotal,
+      exportedTo: state.exportedTo,
+      sourceHash: state.sourceHash,
+      company: state.company.companyName || '',
+      period: state.company.payPeriod || '',
+      total: slips.length,
+      sent: slips.filter(isSent).length
+    }).catch(function () { /* memory only */ });
+  }
+
+  var persistAsked = false;
+  function requestPersistence() {
+    if (persistAsked) return;
+    persistAsked = true;
+    Vault.persist();
+  }
+
+  function restoreSession(s, auto) {
+    var st = s.state || {};
+    var wb;
+    try {
+      wb = s.file.kind === 'paste' ? readPasted(s.file.text) : XLSX.read(s.file.bytes, { type: 'array', cellDates: true, cellStyles: true });
+    } catch (e) {
+      Vault.clearSession();
+      state.pendingSession = null;
+      renderWelcome();
+      return;
+    }
+    state.pendingSession = null;
+    state.sourceRec = { kind: s.file.kind, name: s.file.name, bytes: s.file.bytes, text: s.file.text, hash: s.file.hash };
+    state.sourceHash = s.file.hash || '';
+    loadWorkbookObject(wb, s.file.name, s.file.kind === 'paste' ? null : s.file.bytes, { restore: st });
+    Vault.get('session-dir').then(function (rec) {
+      if (!rec || !rec.dir || rec.hash !== state.sourceHash) return;
+      state.dirHandle = rec.dir;
+      state.dirWritable = false;
+      return rec.dir.queryPermission ? rec.dir.queryPermission({ mode: 'readwrite' }).then(function (p) { state.dirWritable = p === 'granted'; }) : null;
+    }).then(function () { if (state.step === 5) renderSummaryChips(); }).catch(function () { /* no handle */ });
+    var sent = Object.keys(state.sent).length;
+    Art.say('celebrate', null, { settle: state.step === 5 ? 'send' : 'look', after: 2600 });
+    Guide.toast({
+      id: 'restored', kind: 'ok', icon: '↺', timeout: 9000,
+      html: '<b>Welcome back, nothing was lost.</b> ' + escapeHtml(s.file.name) + ' is open again on the ' + ['', 'Upload', 'Review', 'Design', 'Export', 'Send'][state.step] + ' step' + (sent ? ', ' + plural(sent, 'payslip') + ' already marked as sent' : '') + '.',
+      actions: auto ? [{ label: 'Start fresh instead', onClick: discardSession }] : []
+    });
+  }
+
+  function discardSession() {
+    Promise.all([Vault.clearSession(), Vault.del('session-dir')]).then(function () {
+      if (state.parsed) location.reload();
+      else { state.pendingSession = null; renderWelcome(); }
+    });
+  }
+
+  window.addEventListener('beforeunload', function (e) {
+    writeSessionState();
+    if (state.exporting) { e.preventDefault(); e.returnValue = ''; return ''; }
+  });
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') writeSessionState();
+  });
+
+  // Another tab ticked someone: show it here too.
+  window.addEventListener('storage', function (e) {
+    if (!e.key || e.key !== state.logKey) return;
+    setLog(Vault.mergeLogs(state.log, Vault.readJson(e.key, [])));
+    refreshSendViews();
+  });
+
+  // Two tabs (a restored browser often reopens one more) could send the same payslips twice.
+  (function watchOtherTabs() {
+    if (typeof BroadcastChannel === 'undefined') return;
+    var id = Math.random().toString(36).slice(2);
+    var warned = false;
+    var bc;
+    try { bc = new BroadcastChannel('payslip-generator'); } catch (e) { return; }
+    bc.onmessage = function (ev) {
+      var d = ev.data || {};
+      if (d.id === id) return;
+      if (d.type === 'hello') bc.postMessage({ type: 'here', id: id });
+      if ((d.type === 'hello' || d.type === 'here') && !warned) {
+        warned = true;
+        Guide.toast({ id: 'otherTab', kind: 'warn', timeout: 12000, html: '<b>Also open in another tab.</b> Ticks stay in sync between tabs, but send from one tab only so nobody gets two emails.' });
+      }
+    };
+    bc.postMessage({ type: 'hello', id: id });
+  })();
+
+  // ---------------------------------------------------------------------------
+  // Welcome card (returning visitors), quick start (first visit), data panel
+  // ---------------------------------------------------------------------------
+  function ringSvg(pct, label) {
+    var c = 2 * Math.PI * 24;
+    return '<svg class="wl-ring" viewBox="0 0 58 58" aria-hidden="true"><circle class="trk" cx="29" cy="29" r="24" fill="none" stroke-width="6"/>' +
+      '<circle class="val" cx="29" cy="29" r="24" fill="none" stroke-width="6" stroke-linecap="round" stroke-dasharray="' + c.toFixed(1) + '" stroke-dashoffset="' + c.toFixed(1) + '" data-off="' + (c * (1 - Math.max(0, Math.min(1, pct)))).toFixed(1) + '"/>' +
+      '<text x="29" y="33.5" text-anchor="middle">' + escapeHtml(label) + '</text></svg>';
+  }
+
+  function renderWelcome() {
+    var el = $('welcome');
+    var s = state.pendingSession;
+    var c = state.profile.company || {};
+    var html = '';
+    if (s && !state.parsed) {
+      var st = s.state || {};
+      var steps = ['', 'Upload', 'Review', 'Design', 'Export', 'Send'];
+      var sending = st.step === 5 && st.total;
+      html = ringSvg(sending ? (st.sent || 0) / st.total : (st.step || 2) / 5, sending ? (st.sent || 0) + '/' + st.total : (st.step || 2) + '/5') +
+        '<div class="wl-text"><div class="wl-kicker">Pick up where you left off</div><div class="wl-title">' + escapeHtml(s.file.name) + '</div>' +
+        '<div class="wl-meta">' + escapeHtml([st.company, st.period, st.step ? steps[st.step] + ' step' : '', sending ? (st.sent || 0) + ' of ' + st.total + ' sent' : ''].filter(Boolean).join(' · ')) +
+        ' · saved ' + escapeHtml(Vault.timeAgo(st.savedAt || s.file.savedAt)) + '</div></div>' +
+        '<div class="wl-actions"><button type="button" class="btn btn-light" id="btnResume">Resume →</button><button type="button" class="btn" id="btnDiscard">Start new</button></div>';
+    } else if (state.returning && (c.companyName || state.profile.logo)) {
+      var b = backupStatus();
+      var line = b.state === 'ok' ? 'settings file saved ' + escapeHtml(Vault.timeAgo(b.at)) + ' ✓'
+        : b.state === 'stale' ? '<span class="warn">changes since your last settings file</span>'
+        : b.state === 'never' ? '<span class="warn">no settings file saved yet</span>' : '';
+      html = '<div class="wl-art">' + Art.mascot('q-own') + '</div>' +
+        '<div class="wl-text"><div class="wl-kicker">Welcome back</div><div class="wl-title">' + escapeHtml(c.companyName || 'Good to see you again') + '</div>' +
+        '<div class="wl-meta">Company, logo and design are remembered on this computer' + (line ? ' · ' + line : '') + '</div></div>' +
+        (b.state === 'never' || b.state === 'stale' ? '<div class="wl-actions"><button type="button" class="btn btn-light" id="btnWlSave">' + ICON_SAVE.replace('<svg', '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2"') + ' Save settings file</button></div>' : '');
+    }
+    el.innerHTML = html;
+    el.classList.toggle('hidden', !html);
+    if (!html) return;
+    var ring = el.querySelector('.wl-ring .val');
+    if (ring) requestAnimationFrame(function () { requestAnimationFrame(function () { ring.style.strokeDashoffset = ring.getAttribute('data-off'); }); });
+    if ($('btnResume')) $('btnResume').addEventListener('click', function () { restoreSession(s, false); });
+    if ($('btnDiscard')) $('btnDiscard').addEventListener('click', discardSession);
+    if ($('btnWlSave')) $('btnWlSave').addEventListener('click', function () { openSavePoint(null); });
+  }
+
+  function openTour(start) {
+    return Guide.tour({
+      start: start || 0,
+      onDownload: function (example) { if (example) downloadExampleTemplate(); else downloadEmptyTemplate(); },
+      canInstall: function () { return !!(window.PayslipPWA && window.PayslipPWA.canInstall()); },
+      onInstall: function () { window.PayslipPWA.install(); }
+    }).then(function (result) {
+      Vault.updateVisit({ tourDone: true, tourResult: result });
+      if (result === 'done') Art.say('idle', null);
+    });
+  }
+
+  function openDataPanel() {
+    var b = backupStatus();
+    var prefs = Vault.prefs();
+    Promise.all([Vault.persisted(), Vault.loadSession()]).then(function (r) {
+      var persisted = r[0];
+      var sess = r[1];
+      var sentCount = Object.keys(state.sent).length;
+      var li = function (cls, icon, title, text) {
+        return '<li><span class="di ' + cls + '">' + icon + '</span><div><b>' + title + '</b><span>' + text + '</span></div></li>';
+      };
+      var m = Guide.modal({
+        className: 'data-panel',
+        label: 'Your data on this computer',
+        html: '<h2>Your data stays on this computer</h2><p class="muted">Nothing is uploaded anywhere. This is what the browser keeps, and why.</p><ul class="data-list">' +
+          li(b.state === 'ok' ? 'ok' : b.state === 'empty' ? '' : 'warn', '⚙️', 'Settings', 'Company, logo, design and column choices. ' +
+            (b.state === 'ok' ? 'Settings file saved ' + escapeHtml(Vault.timeAgo(b.at)) + '.' : b.state === 'empty' ? 'Nothing set up yet.' : 'No up-to-date settings file yet: save one as a backup.')) +
+          li('', '📄', 'Open file and progress', sess ? escapeHtml(sess.file.name) + ': kept up to ' + Vault.SESSION_TTL_DAYS + ' days so a refresh, crash or restart loses nothing.' : prefs.remember ? 'Nothing open yet.' : 'Not kept (switched off below).') +
+          li('', '✉️', 'Delivery ticks', state.parsed ? plural(sentCount, 'employee') + ' marked as sent for ' + escapeHtml(state.company.payPeriod || 'this period') + (state.dirHandle && state.dirWritable ? ', also written to delivery-log.csv in your export folder.' : '. Download the delivery log to keep a copy.') : 'Kept per company and pay period, even when you close the browser.') +
+          li(persisted ? 'ok' : '', persisted ? '🛡️' : 'ℹ️', 'Protected storage', persisted ? 'The browser will not clear this data by itself.' : 'The browser may clear this data when the disk runs full. The settings file is your backup.') +
+          '</ul><label class="check"><input type="checkbox" id="optRemember"' + (prefs.remember ? ' checked' : '') + '><span>Remember my open file and progress on this computer. Turn this off on a shared computer.</span></label>' +
+          '<div class="actions"><button type="button" class="btn btn-primary" id="dpSave">Save settings file</button><button type="button" class="btn btn-danger" id="dpErase">Erase everything here</button></div>'
+      });
+      m.el.querySelector('#optRemember').addEventListener('change', function () {
+        Vault.setPrefs({ remember: this.checked });
+        if (this.checked) storeSessionFile(state.sourceRec);
+        else Promise.all([Vault.clearSession(), Vault.del('session-dir')]);
+      });
+      m.el.querySelector('#dpSave').addEventListener('click', function () { saveSettingsFile(); });
+      m.el.querySelector('#dpErase').addEventListener('click', function () {
+        m.close();
+        Guide.confirm({
+          title: 'Erase everything on this computer?', danger: true, ok: 'Erase everything',
+          html: 'Settings, logo, the open file and all delivery ticks are removed from this browser. Files you saved yourself (settings file, PDFs, delivery log) are not touched.'
+        }).then(function (yes) {
+          if (!yes) return;
+          Vault.eraseAll().then(function () { location.reload(); });
+        });
+      });
+    });
+  }
+  $('privacyBtn').addEventListener('click', openDataPanel);
 
   // ---------------------------------------------------------------------------
   // Init
   // ---------------------------------------------------------------------------
   Art.init();
+  // the quick start only opens by itself if the visitor has not started doing something already
+  var interacted = false;
+  ['pointerdown', 'keydown', 'drop'].forEach(function (ev) {
+    document.addEventListener(ev, function () { interacted = true; }, { capture: true, once: true });
+  });
+  var visitInfo = Vault.touchVisit(new Date().toISOString());
+  var hadProfile = !!Vault.readJson(STORAGE_KEY, null);
   loadProfile();
+  state.returning = !visitInfo.first || hadProfile;
   renderDesignControls();
   bindImage('logo');
   bindImage('stamp');
   updateSavedHint();
   goStep(1);
+  renderBackupChip();
+  Vault.get('settings-handle').then(function (h) { if (h && h.createWritable) state.settingsHandle = h; }).catch(function () { /* none */ });
+  Vault.loadSession().then(function (s) {
+    if (s && rememberOn()) {
+      state.pendingSession = s;
+      if (s.ageMs < AUTO_RESUME_MS && !state.parsed) { restoreSession(s, true); return; }
+    }
+    renderWelcome();
+    if (!state.returning && !s) {
+      setTimeout(function () {
+        if (interacted || state.parsed || document.querySelector('.modal-backdrop')) return;
+        openTour();
+      }, 700);
+    }
+  });
 
   window.PayslipApp = {
     state: state,
+    handleFile: handleFile,
+    flushSession: writeSessionState,
+    openTour: openTour,
     loadWorkbookData: loadWorkbookData,
     exportableSlips: exportableSlips,
     artifactFor: artifactFor,

@@ -1,0 +1,31 @@
+{
+  "id": "./",
+  "name": "Payslip Generator",
+  "short_name": "Payslips",
+  "description": "Salary Excel sheet in, locked PDF payslips out. Works offline; nothing leaves this computer.",
+  "lang": "en",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#eef2f6",
+  "theme_color": "#1e3a8a",
+  "categories": ["business", "finance", "productivity"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "file_handlers": [
+    {
+      "action": "./index.html",
+      "accept": {
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx", ".xlsm"],
+        "application/vnd.ms-excel": [".xls"],
+        "text/csv": [".csv"]
+      }
+    }
+  ],
+  "launch_handler": { "client_mode": "focus-existing" }
+}

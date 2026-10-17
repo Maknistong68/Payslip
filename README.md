@@ -47,6 +47,28 @@ The page is a five-step wizard:
    - **Print & sign**: an acknowledgement register to collect signatures.
    Rows are ticked as you go; the ticks survive reloads and export as a delivery log CSV with file hashes.
 
+### First visit, save point and never losing work
+
+- **First visit** (nothing saved in this browser yet): a 30-second animated quick start opens by itself:
+  download the template, fill it, drop it, save the settings file. It can be replayed from *▶ 30-second guide*.
+  Returning visitors get a *Welcome back* card with their company and backup status instead.
+- **Save point**: before the Export step, if the setup (company, logo, design, columns, message) has no
+  up-to-date settings file, an animated save point offers to save one. Skipping is remembered until something
+  changes. The top bar shows the backup state at all times (*Save settings* / *Save changes* / *Backed up*).
+  In Chrome and Edge the file is picked once and then **kept up to date automatically**; other browsers download it.
+  The pay period and dates do not count as changes, so the monthly routine does not nag.
+- **Refresh, crash or browser restart**: the open file, the step, the sheet and header choices, the export
+  options and the bank total are kept in the browser (IndexedDB). Within 12 hours the page reopens exactly where
+  it was; later, a *Pick up where you left off* card offers to resume (kept up to 30 days).
+- **Sending is crash-proof**: every tick is written before the next click (localStorage, with a copy in
+  IndexedDB) into an append-only journal, so two tabs or a restored session never erase each other's ticks.
+  After a folder export the journal is also written to `delivery-log.csv` next to the PDFs, and *Restore ticks
+  from a log* reads it back after a browser reset or on another computer. Sending to someone already ticked asks
+  first; a second open tab shows a warning; ticks made with a different version of the Excel file are flagged;
+  closing the page during an export asks for confirmation.
+- **Your data** (the *Private* button): what this browser keeps and why, a switch to stop remembering the open
+  file on a shared computer, and *Erase everything here*.
+
 The research behind the delivery design is in `reports/Offline bulk payslip delivery options.md`, and the
 build plan in `docs/DELIVERY_PLAN.md`.
 
@@ -88,6 +110,19 @@ be collapsed. *Download my template* fills in the company details, logo and stam
 
 Ready-made files are in `samples/`: the empty template, a filled sample with 25 employees, `Sample_All_Templates.pdf` (one page per design) and an Arabic sample.
 
+## Install as an app (PWA)
+
+Served over HTTPS (or `http://localhost`), the page is an installable app: an *Install app* button appears in
+the top bar (Chrome/Edge; on iPhone use Share → Add to Home Screen). The service worker caches every file, so the
+app opens and works without internet, including the template download. Installed on Windows/macOS/ChromeOS, Excel
+and CSV files can be opened with it directly (*Open with › Payslips*). When a new version is deployed, a
+*New version ready* message offers a reload; the open file and ticks come straight back.
+
+Opened as a file from disk (USB stick, shared drive) everything works as before, without the install option.
+
+When deploying a change, bump `VERSION` in `sw.js` (the test suite checks that every file the page loads is in
+its cache list).
+
 ## Project layout
 
 ```
@@ -99,12 +134,16 @@ js/xlsx-images.js reads pictures out of an .xlsx and embeds pictures into one (J
 js/pdf.js         13 PDF templates (each a small design spec), thumbnails, display options, passwords, register
 js/delivery.js    .eml drafts, mail-merge CSV, WhatsApp/Gmail links, Outlook macro and guides
 js/fonts/         Amiri Regular/Bold as base64 for Arabic text, plus its OFL licence
-js/app.js         the five-step UI, settings file, preview, export and send
+js/app.js         the five-step UI, settings file, preview, export and send, session restore, backup state
 js/art.js         logo, the mascot "Qasi" and its moods, confetti, count-up numbers, card spotlight
+js/guide.js       animated quick start, save point, confirm dialogs and toasts (SVG scenes animated with CSS)
+js/vault.js       IndexedDB store, append-only delivery journal, first-visit record, fingerprints (also runs in Node)
+js/pwa.js         service worker registration, install button, update message, file handling
+sw.js             service worker (offline cache); manifest.webmanifest and icons/ for installing
 css/fonts/        Sora display font (SIL Open Font License)
 js/vendor/        SheetJS, jsPDF, JSZip, ExcelJS (MIT) (bundled so the page works offline)
 samples/          template, sample workbook, sample PDFs
-tools/            build-samples.js (regenerates samples/) and test.js (smoke tests)
+tools/            build-samples.js (regenerates samples/), build-icons.js (regenerates icons/), test.js (smoke tests)
 ```
 
 ## Development
@@ -113,6 +152,8 @@ tools/            build-samples.js (regenerates samples/) and test.js (smoke tes
 node tools/test.js            # parser/validator/PDF smoke tests, also renders 1,000 payslips
 node tools/build-samples.js   # regenerate samples/*.xlsx
 WRITE_PDFS=1 node tools/test.js   # also writes samples/Sample_*.pdf
+NODE_PATH=$(npm root -g) node tools/build-icons.js   # regenerate icons/ (needs Playwright + Chromium)
+python3 -m http.server 8000   # try the installable app at http://localhost:8000
 ```
 
 No build step; edit the files and reload the page.
@@ -133,6 +174,10 @@ No build step; edit the files and reload the page.
   labels and the amount in words stay in English.
 - A ZIP of 1,000 Arabic payslips takes around 1–2 minutes because each file carries its own font subset.
 - Pictures in formats the browser cannot decode (EMF/WMF) are ignored; use PNG or JPG in the Excel file.
+- The open file and progress are kept in the browser's storage without a password, like any local app data.
+  On a shared computer, switch off *Remember my open file* in the *Private* panel, or use *Erase everything here*.
+- The self-updating settings file and the delivery log written into the export folder need Chrome or Edge;
+  after a browser restart they ask once for permission again (one click). Other browsers download the files.
 
 ## Look and feel
 
