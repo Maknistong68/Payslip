@@ -21,7 +21,8 @@ The page is a five-step wizard:
    - *Columns*: how each column of your sheet was understood. Anything guessed or ignored can be remapped
      in one click, and the choice is remembered for the next upload.
    - *Employees*: every row with its calculated earnings, deductions, net and the checks that failed.
-3. **Design** – template (Classic, Modern, Minimal), accent colour, paper size, title, logo and stamp,
+3. **Design** – one of 13 templates (Classic, Modern, Minimal, Executive, Steel, Corporate, Bold, Ledger,
+   Compact, Split, Formal, Heritage, Receipt), accent colour, paper size, title, logo and stamp,
    and a checklist of what to print, with a live preview. *Save settings file* / *Load settings file* keep
    every payslip uniform across months and computers; *Download my template* gives an Excel file already
    filled with your company details and logo.
@@ -66,7 +67,7 @@ The template gives the best result, but any salary sheet is accepted:
 - Names and text can be in English or Arabic. Arabic is printed with the bundled Amiri font (SIL Open Font License);
   other scripts (Cyrillic, Chinese…) are flagged in the checks and print as `?`.
 
-Ready-made files are in `samples/`: the empty template, a filled sample with 25 employees, one sample PDF per design and an Arabic sample per design.
+Ready-made files are in `samples/`: the empty template, a filled sample with 25 employees, `Sample_All_Templates.pdf` (one page per design) and an Arabic sample.
 
 ## Project layout
 
@@ -75,7 +76,7 @@ index.html        the page
 css/styles.css
 js/schema.js      Excel template definition, tolerant parser, column guessing and validation (pure functions)
 js/xlsx-images.js reads pictures out of an .xlsx and embeds pictures into one (JSZip)
-js/pdf.js         the three PDF designs, display options, PDF passwords, acknowledgement register (jsPDF)
+js/pdf.js         13 PDF templates (each a small design spec), thumbnails, display options, passwords, register
 js/delivery.js    .eml drafts, mail-merge CSV, WhatsApp/Gmail links, Outlook macro and guides
 js/fonts/         Amiri Regular/Bold as base64 for Arabic text, plus its OFL licence
 js/app.js         the five-step UI, settings file, preview, export and send

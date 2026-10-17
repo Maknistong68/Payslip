@@ -591,7 +591,7 @@
   function renderTemplateCards() {
     $('templateCards').innerHTML = PDF.TEMPLATES.map(function (t) {
       return '<button type="button" class="template-card' + (t.id === state.profile.templateId ? ' active' : '') + '" data-id="' + t.id + '">' +
-        '<div class="thumb ' + t.id + '"><div class="t-head"><span></span><span></span></div><div class="t-box"></div><div class="t-tables"><span></span><span></span></div><div class="t-net"></div></div>' +
+        '<div class="thumb">' + PDF.thumbSvg(t.id, state.profile.accent) + '</div>' +
         '<div class="name">' + escapeHtml(t.name) + '</div><div class="desc">' + escapeHtml(t.description) + '</div></button>';
     }).join('');
     Array.prototype.forEach.call($('templateCards').querySelectorAll('.template-card'), function (btn) {
@@ -614,11 +614,14 @@
     renderImages();
   }
 
+  var thumbTimer = null;
   $('accent').addEventListener('input', function () {
     state.profile.accent = $('accent').value;
     document.documentElement.style.setProperty('--accent', state.profile.accent);
     saveProfile();
     invalidate();
+    clearTimeout(thumbTimer);
+    thumbTimer = setTimeout(renderTemplateCards, 120);
   });
   $('paper').addEventListener('change', function () {
     state.profile.paper = $('paper').value;

@@ -217,7 +217,7 @@ PDF.TEMPLATES.forEach(function (t) {
   var ab = Buffer.from(d.output('arraybuffer'));
   assert.ok(ab.length > 20000, 'embedded font makes the file bigger');
   assert.ok(ab.toString('latin1').indexOf('Amiri') >= 0, 'Amiri embedded');
-  if (process.env.WRITE_PDFS) fs.writeFileSync(path.join(__dirname, '..', 'samples', 'Sample_Arabic_' + t.name + '.pdf'), ab);
+  if (process.env.WRITE_PDFS && t.id === 'executive') fs.writeFileSync(path.join(__dirname, '..', 'samples', 'Sample_Arabic.pdf'), ab);
 });
 var plain = PDF.createDoc(jsPDF, 'a4');
 PDF.renderPayslip(plain, { slip: sample.slips[0], settings: sample.settings, templateId: 'classic', accent: '#1f4e79', options: {} });
@@ -236,8 +236,16 @@ PDF.TEMPLATES.forEach(function (t) {
   });
   var buf = Buffer.from(doc.output('arraybuffer'));
   assert.ok(buf.length > 5000);
-  if (process.env.WRITE_PDFS) fs.writeFileSync(path.join(outDir, 'Sample_' + t.name + '.pdf'), buf);
 });
+if (process.env.WRITE_PDFS) {
+  // one page per template, for a quick look at every design
+  var all = PDF.createDoc(jsPDF, 'a4');
+  PDF.TEMPLATES.forEach(function (t, i) {
+    if (i) all.addPage();
+    PDF.renderPayslip(all, { slip: sample.slips[0], settings: sample.settings, templateId: t.id, accent: '#1f4e79', options: { signatureLines: true } });
+  });
+  fs.writeFileSync(path.join(outDir, 'Sample_All_Templates.pdf'), Buffer.from(all.output('arraybuffer')));
+}
 var big = Schema.parseWorkbook(XLSX, readWb(wbToBuf(Schema.buildTemplateWorkbook(XLSX, { sampleRows: Schema.sampleRows(1000) }))));
 assert.strictEqual(big.slips.length, 1000);
 var t0 = Date.now();

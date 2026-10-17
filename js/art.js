@@ -17,18 +17,18 @@
     return '<svg class="logo-mark" width="' + size + '" height="' + size + '" viewBox="0 0 48 48" aria-hidden="true">' +
       '<defs>' +
       '<linearGradient id="' + id + 'a" x1="0" y1="0" x2="1" y2="1">' +
-      '<stop offset="0" stop-color="#6366f1"><animate attributeName="stop-color" values="#6366f1;#8b5cf6;#14b8a6;#6366f1" dur="9s" repeatCount="indefinite"/></stop>' +
-      '<stop offset="1" stop-color="#ec4899"><animate attributeName="stop-color" values="#ec4899;#6366f1;#8b5cf6;#ec4899" dur="9s" repeatCount="indefinite"/></stop>' +
+      '<stop offset="0" stop-color="#1e3a8a"><animate attributeName="stop-color" values="#1e3a8a;#2563eb;#0e7490;#1e3a8a" dur="9s" repeatCount="indefinite"/></stop>' +
+      '<stop offset="1" stop-color="#0ea5e9"><animate attributeName="stop-color" values="#0ea5e9;#1e3a8a;#2563eb;#0ea5e9" dur="9s" repeatCount="indefinite"/></stop>' +
       '</linearGradient>' +
-      '<linearGradient id="' + id + 'b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#e0e7ff"/></linearGradient>' +
+      '<linearGradient id="' + id + 'b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#e2e8f0"/></linearGradient>' +
       '</defs>' +
       '<rect x="2" y="2" width="44" height="44" rx="14" fill="url(#' + id + 'a)"/>' +
       '<rect x="2" y="2" width="44" height="22" rx="14" fill="#fff" opacity=".12"/>' +
       '<g transform="rotate(-8 24 25)">' +
       '<path d="M15 10.5h14.5l5 5V35l-2.5 2.5-2.5-2.5-2.5 2.5-2.5-2.5-2.5 2.5-2.5-2.5-2.5 2.5-2.5-2.5V12.5a2 2 0 0 1 2-2z" fill="url(#' + id + 'b)"/>' +
-      '<path d="M29.5 10.5v3.5a1.5 1.5 0 0 0 1.5 1.5h3.5z" fill="#c7d2fe"/>' +
-      '<rect x="17" y="17" width="9" height="2.4" rx="1.2" fill="#a5b4fc"/>' +
-      '<rect x="17" y="22" width="13" height="2.4" rx="1.2" fill="#c7d2fe"/>' +
+      '<path d="M29.5 10.5v3.5a1.5 1.5 0 0 0 1.5 1.5h3.5z" fill="#cbd5e1"/>' +
+      '<rect x="17" y="17" width="9" height="2.4" rx="1.2" fill="#93c5fd"/>' +
+      '<rect x="17" y="22" width="13" height="2.4" rx="1.2" fill="#cbd5e1"/>' +
       '<rect x="17" y="27" width="7" height="2.4" rx="1.2" fill="url(#' + id + 'a)"/>' +
       '</g>' +
       '<circle cx="35" cy="34" r="7.5" fill="#10b981" stroke="#fff" stroke-width="2.2"/>' +
@@ -42,13 +42,14 @@
   // ---------------------------------------------------------------------------
   function mascot(cls) {
     var id = 'qs' + (++uid);
-    var ink = '#1e1b4b';
-    return '<svg class="qasi ' + (cls || '') + '" viewBox="0 0 220 230" data-mood="idle" role="img" aria-label="Qasi, the payslip mascot">' +
+    var ink = '#0f172a';
+    return '<svg class="qasi ' + (cls || '') + '" viewBox="0 -18 220 248" data-mood="idle" role="img" aria-label="Qasi, the payslip mascot">' +
       '<defs>' +
-      '<linearGradient id="' + id + 'b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#e8ebff"/></linearGradient>' +
+      '<linearGradient id="' + id + 'b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#e2e8f0"/></linearGradient>' +
+      '<linearGradient id="' + id + 'h" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fcd34d"/><stop offset="1" stop-color="#f59e0b"/></linearGradient>' +
       '<linearGradient id="' + id + 'g" x1="0" y1="0" x2="1" y2="0">' +
-      '<stop offset="0" stop-color="#6366f1"><animate attributeName="stop-color" values="#6366f1;#14b8a6;#ec4899;#6366f1" dur="8s" repeatCount="indefinite"/></stop>' +
-      '<stop offset="1" stop-color="#ec4899"><animate attributeName="stop-color" values="#ec4899;#6366f1;#14b8a6;#ec4899" dur="8s" repeatCount="indefinite"/></stop>' +
+      '<stop offset="0" stop-color="#2563eb"><animate attributeName="stop-color" values="#2563eb;#0ea5e9;#0e7490;#2563eb" dur="8s" repeatCount="indefinite"/></stop>' +
+      '<stop offset="1" stop-color="#0e7490"><animate attributeName="stop-color" values="#0e7490;#2563eb;#0ea5e9;#0e7490" dur="8s" repeatCount="indefinite"/></stop>' +
       '</linearGradient>' +
       '</defs>' +
       '<ellipse class="q-shadow" cx="110" cy="220" rx="48" ry="7" fill="' + ink + '" opacity=".14"/>' +
@@ -59,20 +60,26 @@
       '<g class="q-arm-l"><path d="M50 118 Q30 122 26 106" fill="none" stroke="' + ink + '" stroke-width="5" stroke-linecap="round"/><circle cx="26" cy="103" r="7" fill="#fff" stroke="' + ink + '" stroke-width="3.5"/></g>' +
       // body
       '<path d="M62 22 H146 L170 46 V178 L160 190 L150 178 L140 190 L130 178 L120 190 L110 178 L100 190 L90 178 L80 190 L70 178 L60 190 L50 178 V34 Q50 22 62 22 Z" fill="url(#' + id + 'b)" stroke="' + ink + '" stroke-width="4" stroke-linejoin="round"/>' +
-      '<path d="M146 22 V40 Q146 46 152 46 H170 Z" fill="#c7d2fe" stroke="' + ink + '" stroke-width="4" stroke-linejoin="round"/>' +
+      '<path d="M146 22 V40 Q146 46 152 46 H170 Z" fill="#cbd5e1" stroke="' + ink + '" stroke-width="4" stroke-linejoin="round"/>' +
+      '<g class="q-hat">' +
+      '<path d="M66 22 Q66 -12 108 -12 Q150 -12 150 22 Z" fill="url(#' + id + 'h)" stroke="' + ink + '" stroke-width="4" stroke-linejoin="round"/>' +
+      '<path d="M100 -11 Q100 2 100 21 M116 -11 Q116 2 116 21" stroke="#d97706" stroke-width="3" fill="none"/>' +
+      '<rect x="50" y="17" width="116" height="10" rx="5" fill="#f59e0b" stroke="' + ink + '" stroke-width="4"/>' +
+      '<path d="M76 6 Q80 -4 90 -7" stroke="#fff" stroke-width="3" stroke-linecap="round" fill="none" opacity=".7"/>' +
+      '</g>' +
       // face
       '<g class="q-eyes"><g class="q-pupils">' +
       '<ellipse cx="90" cy="78" rx="8" ry="10" fill="' + ink + '"/><ellipse cx="130" cy="78" rx="8" ry="10" fill="' + ink + '"/>' +
       '<circle cx="93" cy="74" r="3" fill="#fff"/><circle cx="133" cy="74" r="3" fill="#fff"/>' +
       '</g></g>' +
-      '<circle cx="74" cy="96" r="8" fill="#fb7185" opacity=".45"/><circle cx="146" cy="96" r="8" fill="#fb7185" opacity=".45"/>' +
-      '<path class="q-mouth q-m-smile" d="M97 96 Q110 110 123 96" fill="none" stroke="' + ink + '" stroke-width="4" stroke-linecap="round"/>' +
+      '<g class="q-brows"><path d="M78 58 L100 63" stroke="' + ink + '" stroke-width="5" stroke-linecap="round"/><path d="M120 63 L142 58" stroke="' + ink + '" stroke-width="5" stroke-linecap="round"/></g>' +
+      '<path class="q-mouth q-m-smile" d="M98 99 Q112 108 125 95" fill="none" stroke="' + ink + '" stroke-width="4" stroke-linecap="round"/>' +
       '<ellipse class="q-mouth q-m-o" cx="110" cy="101" rx="6" ry="7" fill="' + ink + '"/>' +
       '<path class="q-mouth q-m-grin" d="M94 94 Q110 118 126 94 Z" fill="' + ink + '" stroke="' + ink + '" stroke-width="3" stroke-linejoin="round"/>' +
       '<path class="q-mouth q-m-flat" d="M99 101 Q110 96 121 101" fill="none" stroke="' + ink + '" stroke-width="4" stroke-linecap="round"/>' +
       // body lines + the "net pay" bar
-      '<rect x="72" y="128" width="76" height="8" rx="4" fill="#c7d2fe"/>' +
-      '<rect x="72" y="144" width="54" height="8" rx="4" fill="#dbe2ff"/>' +
+      '<rect x="72" y="128" width="76" height="8" rx="4" fill="#cbd5e1"/>' +
+      '<rect x="72" y="144" width="54" height="8" rx="4" fill="#e2e8f0"/>' +
       '<rect class="q-net" x="72" y="160" width="76" height="10" rx="5" fill="url(#' + id + 'g)"/>' +
       // right arm (waves)
       '<g class="q-arm-r"><path d="M170 118 Q192 112 196 94" fill="none" stroke="' + ink + '" stroke-width="5" stroke-linecap="round"/><circle cx="196" cy="91" r="7" fill="#fff" stroke="' + ink + '" stroke-width="3.5"/></g>' +
@@ -82,8 +89,8 @@
       '<g class="q-prop q-lock"><rect x="14" y="96" width="24" height="20" rx="5" fill="url(#' + id + 'g)" stroke="' + ink + '" stroke-width="3.5"/><path d="M19 96 v-5 a7 7 0 0 1 14 0 v5" fill="none" stroke="' + ink + '" stroke-width="3.5"/><circle cx="26" cy="106" r="2.6" fill="#fff"/></g>' +
       '<g class="q-prop q-spark">' +
       '<path class="s1" d="M40 30 l3 8 8 3 -8 3 -3 8 -3-8 -8-3 8-3z" fill="#fbbf24"/>' +
-      '<path class="s2" d="M184 20 l2.4 6 6 2.4 -6 2.4 -2.4 6 -2.4-6 -6-2.4 6-2.4z" fill="#ec4899"/>' +
-      '<path class="s3" d="M28 150 l2 5 5 2 -5 2 -2 5 -2-5 -5-2 5-2z" fill="#14b8a6"/>' +
+      '<path class="s2" d="M184 20 l2.4 6 6 2.4 -6 2.4 -2.4 6 -2.4-6 -6-2.4 6-2.4z" fill="#0ea5e9"/>' +
+      '<path class="s3" d="M28 150 l2 5 5 2 -5 2 -2 5 -2-5 -5-2 5-2z" fill="#10b981"/>' +
       '</g>' +
       '<g class="q-prop q-bang"><circle cx="188" cy="34" r="14" fill="#f59e0b" stroke="' + ink + '" stroke-width="3.5"/><path d="M188 26 v9" stroke="#fff" stroke-width="4" stroke-linecap="round"/><circle cx="188" cy="41" r="2.4" fill="#fff"/></g>' +
       '</g>' +
@@ -161,7 +168,7 @@
     var W = canvas.width = innerWidth * dpr;
     var H = canvas.height = innerHeight * dpr;
     var ctx = canvas.getContext('2d');
-    var colors = ['#6366f1', '#8b5cf6', '#ec4899', '#14b8a6', '#f59e0b', '#10b981'];
+    var colors = ['#2563eb', '#0ea5e9', '#f59e0b', '#10b981', '#0f172a', '#94a3b8'];
     var parts = [];
     var count = opts.count || 160;
     var ox = (opts.x != null ? opts.x : innerWidth / 2) * dpr;
